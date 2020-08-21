@@ -709,7 +709,7 @@ export default class Agent {
 
     ExtractRuntimeVarsFromString(line: string) {
         let runtimeVars: any = {};
-        let arrParams: string[] = line.match(/@kpo?(\{[^}]*\})/g);
+        let arrParams: string[] = line.match(/@sgo?(\{[^}]*\})/g);
         if (arrParams) {
             for (let i = 0; i < arrParams.length; i++) {
                 try {
@@ -1203,7 +1203,7 @@ export default class Agent {
                 step.script.code = SGUtils.btoa_(newScript);
 
                 newScript = SGUtils.atob(step.script.code);
-                let arrInjectVarsScript: string[] = newScript.match(/@kpg?(\([^)]*\))/g);
+                let arrInjectVarsScript: string[] = newScript.match(/@sgg?(\([^)]*\))/g);
                 if (arrInjectVarsScript) {
                     // replace runtime variables in script
                     for (let i = 0; i < arrInjectVarsScript.length; i++) {
@@ -1222,14 +1222,14 @@ export default class Agent {
                                 newScript = newScript.replace(`${arrInjectVarsScript[i]}`, 'null');
                             }
                         } catch (e) {
-                            this.LogError(`Error replacing script @kpg capture for string \"${arrInjectVarsScript[i]}\": ${e.message}`, e.stack, { task: JSON.stringify(task, null, 4) });
+                            this.LogError(`Error replacing script @sgg capture for string \"${arrInjectVarsScript[i]}\": ${e.message}`, e.stack, { task: JSON.stringify(task, null, 4) });
                         }
                     }
                     step.script.code = SGUtils.btoa_(newScript);
                 }
 
                 let newArgs: string = step.arguments;
-                let arrInjectVarsArgs: string[] = newArgs.match(/@kpg?(\([^)]*\))/g);
+                let arrInjectVarsArgs: string[] = newArgs.match(/@sgg?(\([^)]*\))/g);
                 if (arrInjectVarsArgs) {
                     // replace runtime variables in arguments
                     for (let i = 0; i < arrInjectVarsArgs.length; i++) {
@@ -1250,7 +1250,7 @@ export default class Agent {
                                 newArgs = newArgs.replace(`${arrInjectVarsArgs[i]}`, 'null');
                             }
                         } catch (e) {
-                            this.LogError(`Error replacing arguments @kpg capture for string \"${arrInjectVarsArgs[i]}\": ${e.message}`, e.stack, { task: JSON.stringify(task, null, 4) });
+                            this.LogError(`Error replacing arguments @sgg capture for string \"${arrInjectVarsArgs[i]}\": ${e.message}`, e.stack, { task: JSON.stringify(task, null, 4) });
                         }
                     }
                     step.arguments = newArgs;

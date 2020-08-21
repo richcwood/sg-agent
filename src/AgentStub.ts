@@ -48,6 +48,7 @@ export default class AgentStub {
         this.logger.Start();
 
         this.agentPath = path.dirname(process.argv[0]) + '/sg-agent';
+        this.agentPath = this.agentPath.replace('//', '/');
         if (process.platform.startsWith('win'))
             this.agentPath += '.exe';
 
