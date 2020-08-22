@@ -40,7 +40,7 @@ export class SGUtils {
 
     static async injectScripts(_teamId: string, script_code: string, scriptsToInject: any, fnLogError: any) {
         let newScript: string = script_code;
-        let arrScriptsToInject: string[] = newScript.match(/@kps?(\([^)]*\))/g);
+        let arrScriptsToInject: string[] = newScript.match(/@sgs?(\([^)]*\))/g);
         if (arrScriptsToInject) {
             // replace runtime variables in script
             for (let i = 0; i < arrScriptsToInject.length; i++) {
@@ -62,7 +62,7 @@ export class SGUtils {
                         newScript = newScript.replace(`${arrScriptsToInject[i]}`, '');
                     }
                 } catch (e) {
-                    fnLogError(`Error replacing script @kps capture for string \"${arrScriptsToInject[i]}\": ${e.message}`, e.stack);
+                    fnLogError(`Error replacing script @sgs capture for string \"${arrScriptsToInject[i]}\": ${e.message}`, e.stack);
                 }
             }
         }
@@ -70,7 +70,7 @@ export class SGUtils {
         return newScript;
 
         // // find dynamically injected scripts
-        // let arrFindScriptsToInject: string[] = script_code.match(/@kps?(\([^)]*\))/g);
+        // let arrFindScriptsToInject: string[] = script_code.match(/@sgs?(\([^)]*\))/g);
         // let scriptsToInject: any = {};
         // if (arrFindScriptsToInject) {
         //     for (let i = 0; i < arrFindScriptsToInject.length; i++) {
@@ -86,7 +86,7 @@ export class SGUtils {
         //             scriptsToInject[scriptKey] = scriptQuery[0].code;
         //             scriptsToInject = Object.assign(scriptsToInject, subScriptsToInject);
         //         } catch (e) {
-        //             throw new Error(`Error in script @kps capture for string \"${arrFindScriptsToInject[i]}\": ${e.message}`);
+        //             throw new Error(`Error in script @sgs capture for string \"${arrFindScriptsToInject[i]}\": ${e.message}`);
         //         }
         //     }
         // }
