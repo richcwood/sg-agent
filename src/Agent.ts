@@ -28,7 +28,7 @@ const moment = require('moment');
 const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 
-const version = 'v0.0.0.2';
+const version = 'v0.0.0.3';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -966,7 +966,12 @@ export default class Agent {
                 if (step.variables)
                     env = Object.assign(env, step.variables);
 
-                let cmd = spawn(commandString, [], { stdio: ['ignore', out, err], shell: true, detached: true, env: env, cwd: workingDirectory });
+                let cmd;
+                if (process.platform.indexOf('win') >= 0)
+                    cmd = spawn('cmd.exe', ['/c', commandString], { stdio: ['ignore', out, err], shell: true, detached: true, env: env, cwd: workingDirectory });
+                else
+                    cmd = spawn(commandString, [], { stdio: ['ignore', out, err], shell: true, detached: true, env: env, cwd: workingDirectory });
+    
                 runningProcesses[taskOutcomeId] = cmd;
 
                 /// called if there is an error running the script
