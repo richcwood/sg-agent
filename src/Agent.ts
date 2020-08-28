@@ -28,7 +28,7 @@ const moment = require('moment');
 const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 
-const version = 'v0.0.0.3';
+const version = 'v0.0.0.4';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -954,7 +954,8 @@ export default class Agent {
                 /// tail the stdout
                 let tail = new Tail(stdoutFileName, { useWatchFile: true, flushAtEOF: true });
                 tail.on('line', async (data) => {
-                    try { if (fs.existsSync(scriptFileName)) fs.unlinkSync(scriptFileName); } catch (e) { }
+                    if (process.platform.indexOf('win') != 0)
+                        try { if (fs.existsSync(scriptFileName)) fs.unlinkSync(scriptFileName); } catch (e) { }
                     queueTail.push(data);
                 });
 
@@ -966,17 +967,15 @@ export default class Agent {
                 if (step.variables)
                     env = Object.assign(env, step.variables);
 
-                let cmd;
-                if (process.platform.indexOf('win') >= 0)
-                    cmd = spawn('cmd.exe', ['/c', commandString], { stdio: ['ignore', out, err], shell: true, detached: true, env: env, cwd: workingDirectory });
-                else
-                    cmd = spawn(commandString, [], { stdio: ['ignore', out, err], shell: true, detached: true, env: env, cwd: workingDirectory });
+                let cmd = spawn(commandString, [], { stdio: ['ignore', out, err], shell: false, detached: false, env: env, cwd: workingDirectory });
     
                 runningProcesses[taskOutcomeId] = cmd;
 
                 /// called if there is an error running the script
                 cmd.on('error', (err) => {
                     try {
+                        try { if (fs.existsSync(scriptFileName)) fs.unlinkSync(scriptFileName); } catch (e) { }
+
                         // console.log('error: ' + err);
                         this.LogError(`Error running script: ${err}`, '', {});
                         resolve({ 'status': Enums.StepStatus.FAILED, 'code': -1, 'route': 'fail', 'stderr': err, 'failureCode': TaskFailureCode.AGENT_EXEC_ERROR });
@@ -988,6 +987,8 @@ export default class Agent {
                 /// called when external process completes
                 cmd.on('exit', async (code, signal) => {
                     try {
+                        try { if (fs.existsSync(scriptFileName)) fs.unlinkSync(scriptFileName); } catch (e) { }
+
                         procFinished = true;
                         tail.unwatch();
 
