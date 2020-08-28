@@ -4,6 +4,7 @@ const Tail = require('tail').Tail;
 import * as os from 'os';
 import * as fs from 'fs';
 import * as fse from 'fs-extra';
+import * as path from 'path';
 import axios from 'axios';
 import { AgentLogger } from './shared/SGAgentLogger';
 import { StompConnector } from './shared/StompLib';
@@ -28,7 +29,7 @@ const moment = require('moment');
 const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 
-const version = 'v0.0.0.4';
+const version = 'v0.0.0.5';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -890,7 +891,7 @@ export default class Agent {
             try {
                 let script = step.script;
 
-                let scriptFileName = workingDirectory + '/' + SGUtils.makeid(10);
+                let scriptFileName = workingDirectory + path.sep + SGUtils.makeid(10);
 
                 if (script.scriptType == Enums.ScriptType.NODE) {
                     scriptFileName += '.js';
@@ -936,8 +937,8 @@ export default class Agent {
                 if (step.arguments)
                     commandString += ` ${step.arguments}`;
 
-                const stdoutFileName = workingDirectory + '/' + SGUtils.makeid(10) + '.out';
-                const stderrFileName = workingDirectory + '/' + SGUtils.makeid(10) + '.err';
+                const stdoutFileName = workingDirectory + path.sep + SGUtils.makeid(10) + '.out';
+                const stderrFileName = workingDirectory + path.sep + SGUtils.makeid(10) + '.err';
 
                 const out = fs.openSync(stdoutFileName, 'w');
                 const err = fs.openSync(stderrFileName, 'w');
@@ -967,7 +968,7 @@ export default class Agent {
                 if (step.variables)
                     env = Object.assign(env, step.variables);
 
-                let cmd = spawn(commandString, [], { stdio: ['ignore', out, err], shell: false, detached: false, env: env, cwd: workingDirectory });
+                let cmd = spawn(commandString, [], { stdio: ['ignore', out, err], shell: true, detached: false, env: env, cwd: workingDirectory });
     
                 runningProcesses[taskOutcomeId] = cmd;
 
@@ -1016,7 +1017,7 @@ export default class Agent {
                         while ((match = regexStdoutRedirectFiles.exec(step.arguments)) !== null) {
                             const fileName = match[1];
                             let parseResult: any = {};
-                            parseResult = await this.ParseScriptStdout(workingDirectory + '/' + fileName, false);
+                            parseResult = await this.ParseScriptStdout(workingDirectory + path.sep + fileName, false);
                             Object.assign(runtimeVars, parseResult.runtimeVars)
                         }
 
@@ -1146,7 +1147,7 @@ export default class Agent {
         // console.log('Agent -> RunTask -> task -> ', util.inspect(task, false, null));
         let dateStarted = new Date().toISOString();
 
-        let workingDirectory = process.cwd() + '/' + SGUtils.makeid(10);
+        let workingDirectory = process.cwd() + path.sep + SGUtils.makeid(10);
 
         if (!fs.existsSync(workingDirectory))
             fs.mkdirSync(workingDirectory);
