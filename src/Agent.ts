@@ -29,7 +29,7 @@ const moment = require('moment');
 const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 
-const version = 'v0.0.0.5';
+const version = 'v0.0.0.6';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -989,6 +989,9 @@ export default class Agent {
                 cmd.on('exit', async (code, signal) => {
                     try {
                         try { if (fs.existsSync(scriptFileName)) fs.unlinkSync(scriptFileName); } catch (e) { }
+
+                        fs.closeSync(out);
+                        fs.closeSync(err);
 
                         procFinished = true;
                         tail.unwatch();
