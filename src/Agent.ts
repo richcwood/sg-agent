@@ -29,7 +29,7 @@ const moment = require('moment');
 const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 
-const version = 'v0.0.0.6';
+const version = 'v0.0.0.7';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -571,6 +571,21 @@ export default class Agent {
             await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, 'PUT', null, heartbeat_info);
         } catch (e) {
             this.LogError(`Error sending disconnect message - ${e.message}`, '', {});
+        }
+    }
+
+    async RemoveFolder(path: string, retryCount: number) {
+        try {
+            if (fs.existsSync(path)) {
+                fse.removeSync(path);
+            }
+        } catch(err) {
+            retryCount += 1;
+            if (retryCount > 10) {
+                this.LogWarning(`Error removing folder ${path} - ${err.message}`, {});
+            } else {
+                setTimeout(() => { this.RemoveFolder(path, retryCount); }, 1000);
+            }
         }
     }
 
@@ -1326,8 +1341,7 @@ export default class Agent {
             delete runningProcesses[taskOutcome.id];
         }
 
-        if (fs.existsSync(workingDirectory))
-            fse.removeSync(workingDirectory);
+        this.RemoveFolder(workingDirectory, 0);
     }
 
     CompleteTaskGeneralErrorHandler = async (params: any) => {
