@@ -177,7 +177,7 @@ export default class AgentStub {
         return new Promise((resolve, reject) => {
             try {
                 this.logger.LogDebug('AgentLauncher running command: ' + commandString + ' ' + args, {});
-                let cmd: any = spawn(commandString, args, { stdio: 'pipe', shell: true });
+                let cmd: any = spawn(commandString, args, { stdio: 'inherit', shell: true });
 
                 // cmd.stdout.on('data', (data) => {
                 //     try {
