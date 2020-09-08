@@ -47,8 +47,9 @@ export default class AgentStub {
         this.logger = new AgentLogger(params.appName, params._teamId, this.logLevel, process.cwd() + '/installer_logs', this.apiUrl, params.apiPort, params.agentLogsAPIVersion, params.token, params.env, this.logDest, this.machineId);
         this.logger.Start();
 
-        this.agentPath = path.dirname(process.argv[0]) + '/sg-agent';
+        this.agentPath = path.dirname(process.argv[0]) + path.sep + 'sg-agent';
         this.agentPath = this.agentPath.replace('//', '/');
+        this.agentPath = this.agentPath.replace('\\\\', '\\');
         if (process.platform.startsWith('win'))
             this.agentPath += '.exe';
 
