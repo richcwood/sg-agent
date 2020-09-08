@@ -188,14 +188,14 @@ export default class AgentStub {
                 //     }
                 // });
 
-                cmd.stderr.on('data', (data) => {
-                    try {
-                        this.logger.LogError('Error running command in AgentLauncher: ' + data, null, {});
-                        // console.log(`agent err: ${data.toString()}`);
-                    } catch (e) {
-                        this.logger.LogError('Error handling stderr: ' + e.message, e.stack, {});
-                    }
-                });
+                // cmd.stderr.on('data', (data) => {
+                //     try {
+                //         this.logger.LogError('Error running command in AgentLauncher: ' + data, null, {});
+                //         // console.log(`agent err: ${data.toString()}`);
+                //     } catch (e) {
+                //         this.logger.LogError('Error handling stderr: ' + e.message, e.stack, {});
+                //     }
+                // });
 
                 cmd.on('exit', (code) => {
                     try {

@@ -29,7 +29,7 @@ const moment = require('moment');
 const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 
-const version = 'v0.0.0.8';
+const version = 'v0.0.0.9';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
