@@ -41,7 +41,6 @@ export default class Agent {
     private appName: string;
     private machineId: string = undefined;
     private runStandAlone: boolean = undefined;
-    private disconnectedMessages: string[] = [];
     private logger: AgentLogger;
     private apiUrl: string;
     private apiPort: string;
@@ -1497,13 +1496,28 @@ export default class Agent {
         }
     }
 
-    OnRabbitMQDisconnect = (activeMessages) => {
-        this.disconnectedMessages = this.disconnectedMessages.concat(activeMessages);
+    async CheckStompConnection() {
+        if (this.stopped)
+            return;
+
+        if (!this.stompConsumer.IsConnected()) {
+            await this.OnRabbitMQDisconnect();
+        }
+        setTimeout(() => { this.CheckStompConnection(); }, 10000);
+    }
+
+    OnRabbitMQDisconnect = async () => {
+        if (this.stopped)
+            return;
+
+        this.LogError(`Lost connection to rabbitmq - attempting to reconnect`, '', {});
+        await this.stompConsumer.Stop();
+        await this.ConnectStomp();
     };
 
     async ConnectStomp() {
         try {
-            this.stompConsumer = new StompConnector(this.appName, this.instanceId.toHexString(), this.stompUrl, this.rmqUsername, this.rmqPassword, this.rmqAdminUrl, this.rmqVhost, 1, (activeMessages) => this.OnRabbitMQDisconnect(activeMessages), this.logger);
+            this.stompConsumer = new StompConnector(this.appName, this.instanceId.toHexString(), this.stompUrl, this.rmqUsername, this.rmqPassword, this.rmqAdminUrl, this.rmqVhost, 1, () => this.OnRabbitMQDisconnect(), this.logger);
             await this.stompConsumer.Start();
         } catch (e) {
             this.LogError('Error in ConnectStomp: ' + e.message, e.stack, {});

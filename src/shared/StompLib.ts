@@ -17,21 +17,12 @@ if (typeof TextEncoder !== 'function') {
 
 export class StompConnector {
     stompClient: any;
-    offlinePubQueue: any;
-    subscribedRoutes: any;
-    subscriptions: any;
-    stoppedByUser: boolean;
-    connectedToStomp: boolean;
-    activeMessages: any = [];
     rmqAdmin: RabbitMQAdmin;
+    activeMessages: any = [];
     lock = new AsyncLock();
 
     constructor(public appName: string, public clientId: string, public url: string, public userName: string, public password: string, public rmqAdminUrl: string, public vhost: string, public prefetchCount: number, public fnOnDisconnect: any, private logger: any) {
-        this.subscribedRoutes = [];
-        this.subscriptions = [];
-        this.stoppedByUser = false;
-        this.connectedToStomp = false;
-        this.offlinePubQueue = [];
+        this.activeMessages = [];
         this.rmqAdmin = new RabbitMQAdmin(rmqAdminUrl, vhost, this.logger);
     }
 
@@ -53,7 +44,6 @@ export class StompConnector {
 
 
     Start() {
-        this.stoppedByUser = false;
         return new Promise(async (resolve, reject) => {
             try {
                 this.stompClient = new Client({
@@ -77,121 +67,42 @@ export class StompConnector {
                     'Vhost': this.vhost,
                     'UserName': this.userName
                 });
-
-                while (true) {
-                    if (this.connectedToStomp) {
-                        resolve();
-                        await this.CheckConnection();
-                        return;
-                    }
-                    if (this.stoppedByUser)
-                        break;
-                    await SGUtils.sleep(500);
-                }
             } catch (e) {
                 this.LogError('Error connecting to RabbitMQ: ' + e.message, e.stack, {});
-                this.connectedToStomp = false;
-                this.OnDisconnect();
                 reject(e);
             }
         });
     }
 
-    async Stop(stoppedByUser: boolean = true) {
-        this.stoppedByUser = stoppedByUser;
+    async Stop() {
         return new Promise((resolve, reject) => {
             this.LogDebug('Received request to stop Stomp connection to RabbitMQ', {});
             try {
+                this.activeMessages.length = 0;
                 if (this.stompClient) {
                     this.stompClient.deactivate();
                     this.LogDebug('Completed request to stop Stomp connection to RabbitMQ', {});
                     resolve();
                 }
             } catch (e) {
-                this.LogError('Error stopping Stomp connection: ' + e.message, e.stack, {});
-                resolve();
+                resolve(e);
             }
         });
     }
 
     OnConnect() {
-        this.connectedToStomp = true;
         this.LogDebug('Connected to Stomp', {});
-
-        this.subscribedRoutes.forEach(async (params) => {
-            if (params['route']) {
-                this.LogDebug('Resubscribing to route', { 'id': params['id'], 'exchange': params['exchange'], 'route': params['route'], 'queueName': params['queueName'], 'expires': params['expires'] });
-                this.ConsumeRoute(params['id'], params['exclusive'], params['durable'], params['autoDelete'], params['noAck'], params['fnHandleMessage'], params['exchange'], params['route'], params['queueName'], params['expires']);
-            } else {
-                this.LogDebug('Resubscribing to queue', { 'QueueName': params['queueName'], 'expires': params['expires'] });
-                this.ConsumeQueue(params['queueName'], params['exclusive'], params['durable'], params['autoDelete'], params['noAck'], params['fnHandleMessage'], params['exchange'], params['expires']);
-            }
-        });
-        this.subscribedRoutes.length = 0;
-
-        while (true) {
-            let m = this.offlinePubQueue.shift();
-            if (!m) break;
-            this.Publish(m[0], m[1], m[2]);
-        }
-    }
-
-    async OnDisconnect() {
-        this.LogDebug('OnDisconnect called', { 'stoppedByUser': this.stoppedByUser, 'lockIsBusy': this.lock.isBusy() });
-        this.lock.acquire('restart', async (done) => {
-            try {
-                if (!this.stoppedByUser && this.connectedToStomp)
-                    return;
-
-                this.fnOnDisconnect(this.activeMessages.slice());
-                this.activeMessages = [];
-                if (!this.stoppedByUser) {
-                    await this.Stop(false);
-                }
-            } catch (e) {
-                this.LogError(`Error in OnDisconnect: ${e}`, '', {});
-                setTimeout(async () => { await this.OnDisconnect(); }, 10000);
-            } finally {
-                done();
-            }
-        });
     }
 
     OnStompError = (err) => {
         this.LogError(`Stomp error occurred: ${err}`, '', {});
-        this.connectedToStomp = false;
-        this.OnDisconnect();
+        this.fnOnDisconnect();
     };
 
-    async CheckConnection() {
-        // this.LogDebug('Checking connectivity', {stoppedByUser: this.stoppedByUser, connectedToStomp: this.connectedToStomp, readyState: this.stompClient.webSocket.readyState});
-        if (!this.stoppedByUser && this.connectedToStomp) {
-            if (this.stompClient.webSocket.readyState == WebSocket.CLOSED) {
-                this.LogError(`Lost connection to rabbitmq - attempting to reconnect`, '', {});
-                this.connectedToStomp = false;
-                this.OnDisconnect();
-            }
-        }
-        setTimeout(() => { this.CheckConnection(); }, 10000);
-    }
-
-    async Publish(exchange: string, routingKey: string, content: any, args: any = {}) {
-        try {
-            let route: string;
-            if (!exchange || (exchange == ''))
-                route = `/queue/${routingKey}`;
-            else
-                route = `/exchange/${exchange}/${routingKey}`;
-            this.stompClient.send(route, args, JSON.stringify(content));
-            this.LogDebug('Published message', { 'Content': util.inspect(content, false, null), 'Exchange': exchange, 'Route': route });
-        } catch (e) {
-            if (this.stoppedByUser)
-                throw e;
-            this.LogError('Publisher channel error: ' + e.message, e.stack, {});
-            this.offlinePubQueue.push([exchange, routingKey, content]);
-            this.connectedToStomp = false;
-            this.OnDisconnect();
-        }
+    IsConnected = () => {
+        if (this.stompClient && this.stompClient.webSocket)
+            return this.stompClient.webSocket.readyState != WebSocket.CLOSED;
+        return false;
     }
 
     async ConsumeQueue(queueName: string, exclusive: boolean, durable: boolean, autoDelete: boolean, noAck: boolean, fnHandleMessage: any, exchange: string, expires: number = 0) {
@@ -246,8 +157,6 @@ export class StompConnector {
                         }
                     }
                 }, headers);
-                this.subscriptions.push(sub);
-                this.subscribedRoutes.push({ 'queueName': queueName, 'exclusive': exclusive, 'durable': durable, 'autoDelete': autoDelete, 'noAck': noAck, 'fnHandleMessage': fnHandleMessage, 'exchange': exchange, 'expires': expires });
                 this.LogDebug('Consuming queue', { 'QueueName': queueName });
             } catch (e) {
                 this.LogError('Error consuming Stomp queue', e.stack, { 'QueueName': queueName });
@@ -308,7 +217,6 @@ export class StompConnector {
                         }
                     }
                 }, headers);
-                this.subscribedRoutes.push({ 'id': id, 'exclusive': exclusive, 'durable': durable, 'autoDelete': autoDelete, 'noAck': noAck, 'fnHandleMessage': fnHandleMessage, 'exchange': exchange, 'route': route, 'queueName': queueName, 'expires': expires });
                 this.LogDebug('Consuming route', { 'QueueName': id, 'Exchange': exchange, 'Route': route });
             } catch (e) {
                 this.LogError('Error consuming Stomp route', e.stack, { 'QueueName': id, 'Exchange': exchange, 'Route': route });
@@ -321,15 +229,5 @@ export class StompConnector {
     async StopConsumingQueue(sub: any) {
         this.LogDebug('Unsubscribing', { 'Subscription': util.inspect(sub, false, null) });
         await sub.unsubscribe();
-        SGUtils.removeItemFromArray(this.subscriptions, sub);
-    }
-
-    async StopConsuming() {
-        try {
-            while (this.subscriptions.length > 0)
-                await this.StopConsumingQueue(this.subscriptions[0]);
-        } catch (e) {
-            this.LogError('Error in StopConsuming: ' + e.message, e.stack, {});
-        }
     }
 }
