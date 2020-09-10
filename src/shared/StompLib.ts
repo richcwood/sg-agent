@@ -2,7 +2,6 @@ import { SGUtils } from './SGUtils';
 import * as util from 'util';
 import { RabbitMQAdmin } from "./RabbitMQAdmin";
 import { Client } from '@stomp/stompjs';
-import * as AsyncLock from 'async-lock';
 
 
 Object.assign(global, { WebSocket: require('websocket').w3cwebsocket });
@@ -19,10 +18,13 @@ export class StompConnector {
     stompClient: any;
     rmqAdmin: RabbitMQAdmin;
     activeMessages: any = [];
-    lock = new AsyncLock();
+    subscriptions: any;
+    connectedToStomp: boolean;
 
     constructor(public appName: string, public clientId: string, public url: string, public userName: string, public password: string, public rmqAdminUrl: string, public vhost: string, public prefetchCount: number, public fnOnDisconnect: any, private logger: any) {
         this.activeMessages = [];
+        this.subscriptions = [];
+        this.connectedToStomp = false;
         this.rmqAdmin = new RabbitMQAdmin(rmqAdminUrl, vhost, this.logger);
     }
 
@@ -67,6 +69,20 @@ export class StompConnector {
                     'Vhost': this.vhost,
                     'UserName': this.userName
                 });
+
+                let retryCount = 0;
+                while (true) {
+                    if (this.connectedToStomp) {
+                        resolve();
+                        return;
+                    }
+                    retryCount += 1;
+                    if (retryCount < 20) {
+                        await SGUtils.sleep(500);
+                    } else {
+                        throw new Error("timeout");
+                    }
+                }
             } catch (e) {
                 this.LogError('Error connecting to RabbitMQ: ' + e.message, e.stack, {});
                 reject(e);
@@ -91,15 +107,19 @@ export class StompConnector {
     }
 
     OnConnect() {
+        this.connectedToStomp = true;
         this.LogDebug('Connected to Stomp', {});
     }
 
     OnStompError = (err) => {
         this.LogError(`Stomp error occurred: ${err}`, '', {});
+        this.connectedToStomp = false;
         this.fnOnDisconnect();
     };
 
     IsConnected = () => {
+        if (!this.connectedToStomp)
+            return false;
         if (this.stompClient && this.stompClient.webSocket)
             return this.stompClient.webSocket.readyState != WebSocket.CLOSED;
         return false;
@@ -157,6 +177,7 @@ export class StompConnector {
                         }
                     }
                 }, headers);
+                this.subscriptions.push(sub);
                 this.LogDebug('Consuming queue', { 'QueueName': queueName });
             } catch (e) {
                 this.LogError('Error consuming Stomp queue', e.stack, { 'QueueName': queueName });
@@ -229,5 +250,15 @@ export class StompConnector {
     async StopConsumingQueue(sub: any) {
         this.LogDebug('Unsubscribing', { 'Subscription': util.inspect(sub, false, null) });
         await sub.unsubscribe();
+        SGUtils.removeItemFromArray(this.subscriptions, sub);
+    }
+
+    async StopConsuming() {
+        try {
+            while (this.subscriptions.length > 0)
+                await this.StopConsumingQueue(this.subscriptions[0]);
+        } catch (e) {
+            this.LogError('Error in StopConsuming: ' + e.message, e.stack, {});
+        }
     }
 }

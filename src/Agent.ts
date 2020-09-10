@@ -28,14 +28,18 @@ import * as mongodb from 'mongodb';
 const moment = require('moment');
 const mtz = require('moment-timezone');
 import * as _ from 'lodash';
+import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.10';
+const version = 'v0.0.0.11';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
 const regexStdoutRedirectFiles = RegExp('(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)', 'g');
 
 let runningProcesses: any = {};
+
+const lock = new AsyncLock();
+const lockConnectStomp: string = 'lock_connect_stomp_key';
 
 export default class Agent {
     private appName: string;
@@ -245,7 +249,6 @@ export default class Agent {
         await this.SendHeartbeat(true, false);
 
         await this.ConnectStomp();
-        await this.ConnectAgentWorkQueuesStomp();
 
         if (!this.runStandAlone) {
             try {
@@ -1502,41 +1505,50 @@ export default class Agent {
 
         if (!this.stompConsumer.IsConnected()) {
             await this.OnRabbitMQDisconnect();
+        } else {
+            setTimeout(() => { this.CheckStompConnection(); }, 10000);
         }
-        setTimeout(() => { this.CheckStompConnection(); }, 10000);
     }
 
     OnRabbitMQDisconnect = async () => {
         if (this.stopped)
             return;
 
-        this.LogError(`Lost connection to rabbitmq - attempting to reconnect`, '', {});
-        await this.stompConsumer.Stop();
-        await this.ConnectStomp();
+        lock.acquire(lockConnectStomp, async () => {
+            if (!this.stompConsumer.IsConnected()) {
+                this.LogError(`Not connected to RabbitMQ - attempting to connect`, '', {});
+                await this.stompConsumer.Stop();
+                await this.ConnectStomp();
+            }
+        }, (err, ret) => {
+            if (err) {
+                this.LogError('Error in OnRabbitMQDisconnect: ' + err.message, err.stack, {});
+                process.exitCode = 1;
+            }
+        }, {});
     };
 
     async ConnectStomp() {
         try {
             this.stompConsumer = new StompConnector(this.appName, this.instanceId.toHexString(), this.stompUrl, this.rmqUsername, this.rmqPassword, this.rmqAdminUrl, this.rmqVhost, 1, () => this.OnRabbitMQDisconnect(), this.logger);
             await this.stompConsumer.Start();
+            await this.ConnectAgentWorkQueuesStomp();
+            await this.CheckStompConnection();
         } catch (e) {
             this.LogError('Error in ConnectStomp: ' + e.message, e.stack, {});
+            setTimeout(() => { this.ConnectStomp(); }, 30000);
         }
     }
 
     async ConnectAgentWorkQueuesStomp() {
-        try {
-            let exchange = SGStrings.GetTeamExchangeName(this._teamId);
-            const agentQueue = SGStrings.GetAgentQueue(this._teamId, this.instanceId.toHexString());
+        let exchange = SGStrings.GetTeamExchangeName(this._teamId);
+        const agentQueue = SGStrings.GetAgentQueue(this._teamId, this.instanceId.toHexString());
 
-            // Queue to receive version update messages
-            await this.stompConsumer.ConsumeQueue(SGStrings.GetAgentUpdaterQueue(this._teamId, this.instanceId.toHexString()), false, true, false, false, (msg, msgKey, cb) => this.Update(msg, msgKey, cb), SGStrings.GetTeamRoutingPrefix(this._teamId), this.inactiveAgentQueueTTL);
+        // Queue to receive version update messages
+        await this.stompConsumer.ConsumeQueue(SGStrings.GetAgentUpdaterQueue(this._teamId, this.instanceId.toHexString()), false, true, false, false, (msg, msgKey, cb) => this.Update(msg, msgKey, cb), SGStrings.GetTeamRoutingPrefix(this._teamId), this.inactiveAgentQueueTTL);
 
-            // Queue to receive messages sent to this agent
-            await this.stompConsumer.ConsumeQueue(agentQueue, false, true, false, false, (msg, msgKey, cb) => this.CompleteTask(msg, msgKey, cb), exchange, this.inactiveAgentQueueTTL);
-        } catch (e) {
-            this.LogError('Error in ConnectStomp: ' + e.message, e.stack, {});
-        }
+        // Queue to receive messages sent to this agent
+        await this.stompConsumer.ConsumeQueue(agentQueue, false, true, false, false, (msg, msgKey, cb) => this.CompleteTask(msg, msgKey, cb), exchange, this.inactiveAgentQueueTTL);
     }
 
 
