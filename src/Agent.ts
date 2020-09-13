@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.11';
+const version = 'v0.0.0.12';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -879,19 +879,19 @@ export default class Agent {
         }
 
         Object.assign(sysInfo,
-            { processes: procs },
-            { time: sysinfo.time() },
             { osInfo: osInfo },
+            { time: sysinfo.time() },
             { cpuCurrentspeed: cpuCurrentspeed },
             { cpuTemperature: cpuTemperature },
             { currentLoad: currentLoad },
+            { mem: mem },
             { fsSize: fsSize },
+            { inetLatency: inetLatency },
+            { networkStats: networkStats },
+            { processes: procs },
             { networkConnections: networkConnections },
             { users: users },
-            { mem: mem },
-            { battery: battery },
-            { inetLatency: inetLatency },
-            { networkStats: networkStats }
+            { battery: battery }
         );
 
         if (fsStats)
