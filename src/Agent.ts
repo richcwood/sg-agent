@@ -905,15 +905,11 @@ export default class Agent {
     RunningTailHandler = async (params: any) => {
         /// process queued tail messages
         while (true) {
-            console.log('RunningTailHandler -> params.queueTail -> ', params.queueTail);
-            console.log('RunningTailHandler -> params.procFinished -> ', params.procFinished);
             if (params.queueTail.length < 1) {
                 if (params.procFinished) {
-                    console.log('RunningTailHandler -> break -> 1');
                     break;
                 }
                 if (!(params.taskOutcomeId in runningProcesses)) {
-                    console.log('RunningTailHandler -> break -> 2');
                     break;
                 }
                 await SGUtils.sleep(params.appInst.sendUpdatesInterval);
@@ -924,7 +920,6 @@ export default class Agent {
             try {
                 let dataStrings: string[] = data.map((m) => m.message);
                 let dataAsString = dataStrings.join('');
-                console.log('RunningTailHandler -> dataAsString -> ', dataAsString, ', type -> ', typeof(dataAsString));
                 const rtv = params.appInst.ExtractRuntimeVarsFromString(dataAsString);
                 let rtvUpdates = {};
                 for (let indexRTV = 0; indexRTV < Object.keys(rtv).length; indexRTV++) {
@@ -988,9 +983,7 @@ export default class Agent {
                 await SGUtils.sleep(1000);
             }
         }
-        console.log('RunningTailHandler -> params.stdoutAnalysisFinished -> ', params.stdoutAnalysisFinished);
         params.stdoutAnalysisFinished = true;
-        console.log('RunningTailHandler -> params.stdoutAnalysisFinished -> ', params.stdoutAnalysisFinished);
     }
 
     RunStepAsync_Lambda = async (step: StepSchema, workingDirectory: string, task: TaskSchema, stepOutcomeId: mongodb.ObjectId, lastUpdatedId: number, taskOutcomeId: mongodb.ObjectId) => {
@@ -1041,7 +1034,6 @@ export default class Agent {
                 let error = '';
                 await SGUtils.GetCloudWatchLogsEvents(task.id, (msgs) => {
                     for (let i = 0; i < msgs.length; i++) {
-                        console.log('RunStepAsync_Lambda -> GetCloudWatchLogsEvents -> msgs[i] -> ', msgs[i]);
                         if (msgs[i].message.startsWith('START')) {
                             const requestId = msgs[i].message.split(' ')[2]
                             runningProcesses[runParams.taskOutcomeId] = requestId;
@@ -1061,19 +1053,14 @@ export default class Agent {
                         runParams.queueTail.push(msgs[i]);
                     }
 
-                    console.log('RunStepAsync_Lambda -> queueTail -> ', runParams.queueTail);
                     fs.writeSync(out, msgs.join('\n'));
                 });
 
                 runParams.procFinished = true;
 
-                console.log('RunStepAsync_Lambda -> procFinished -> true');
-
                 await SGUtils.sleep(100);
                 while (!runParams.stdoutAnalysisFinished)
                     await SGUtils.sleep(100);
-
-                console.log('RunStepAsync_Lambda -> stdoutAnalysisFinished -> ', runParams.stdoutAnalysisFinished);
 
                 fs.closeSync(out);
 

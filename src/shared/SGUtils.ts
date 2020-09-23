@@ -267,7 +267,6 @@ export class SGUtils {
                     let reachedLogEnd: boolean = false;
                     for (let i = 0; i < res.events.length; i++) {
                         if (res.events[i].message.startsWith('REPORT RequestId:')) {
-                            console.log('GetCloudWatchLogsEvents -> finished');
                             reachedLogEnd = true;
                             break;
                         }
