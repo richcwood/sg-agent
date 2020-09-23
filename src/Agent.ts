@@ -902,6 +902,223 @@ export default class Agent {
         return sysInfo;
     }
 
+    RunningTailHandler = async (params: any) => {
+        /// process queued tail messages
+        while (true) {
+            console.log('RunningTailHandler -> params.queueTail -> ', params.queueTail);
+            console.log('RunningTailHandler -> params.procFinished -> ', params.procFinished);
+            if (params.queueTail.length < 1) {
+                if (params.procFinished) {
+                    console.log('RunningTailHandler -> break -> 1');
+                    break;
+                }
+                if (!(params.taskOutcomeId in runningProcesses)) {
+                    console.log('RunningTailHandler -> break -> 2');
+                    break;
+                }
+                await SGUtils.sleep(params.appInst.sendUpdatesInterval);
+                continue;
+            }
+
+            let data: any[] = params.queueTail.splice(0);
+            try {
+                let dataStrings: string[] = data.map((m) => m.message);
+                let dataAsString = dataStrings.join('');
+                console.log('RunningTailHandler -> dataAsString -> ', dataAsString, ', type -> ', typeof(dataAsString));
+                const rtv = params.appInst.ExtractRuntimeVarsFromString(dataAsString);
+                let rtvUpdates = {};
+                for (let indexRTV = 0; indexRTV < Object.keys(rtv).length; indexRTV++) {
+                    let key = Object.keys(rtv)[indexRTV];
+                    if (!params.rtvCumulative[key] || (params.rtvCumulative[key] != rtv[key])) {
+                        rtvUpdates[key] = rtv[key];
+                        params.rtvCumulative[key] = rtv[key];
+                    }
+                }
+
+                if (Object.keys(rtvUpdates).length > 0) {
+                    // console.log(`****************** taskOutcomeId -> ${taskOutcomeId}`);
+                    await params.appInst.RestAPICall(`taskOutcome/${params.taskOutcomeId}`, 'PUT', null, { runtimeVars: rtvUpdates });
+                }
+
+                params.lastXLines = params.lastXLines.concat(dataStrings).slice(-params.appInst.numLinesInTail);
+                for (let i = 0; i < params.lastXLines.length; i++) {
+                    if (Buffer.byteLength(params.lastXLines[i], 'utf8') > params.appInst.maxSizeLineInTail)
+                    params.lastXLines[i] = truncate(params.lastXLines[i], params.appInst.maxSizeLineInTail) + ' (truncated)';
+                }
+
+                while (true) {
+                    if (dataStrings.length < 1)
+                        break;
+
+                    let stdoutToUpload: string = '';
+                    let countLinesToUpload: number = 0;
+                    if (!params.stdoutTruncated) {
+                        const maxStdoutUploadSize: number = 51200;
+                        let stdoutBytesProcessedLocal: number = 0;
+                        for (let i = 0; i < dataStrings.length; i++) {
+                            const strLenBytes = Buffer.byteLength(dataStrings[i], 'utf8');
+                            if (params.stdoutBytesProcessed + strLenBytes > params.appInst.maxStdoutSize) {
+                                stdoutToUpload += '\n(max stdout size exceeded - results truncated)\n';
+                                params.stdoutTruncated = true;
+                                break;
+                            }
+                            if (stdoutBytesProcessedLocal + strLenBytes > maxStdoutUploadSize) {
+                                break;
+                            }
+                            stdoutToUpload += `${dataStrings[i]}\n`;
+                            params.stdoutBytesProcessed += strLenBytes;
+                            stdoutBytesProcessedLocal += strLenBytes;
+                            countLinesToUpload += 1;
+                        }
+                    }
+
+                    dataStrings.splice(0, countLinesToUpload);
+
+                    // console.log('================== -> ', new Date().toISOString(), ', lastUpdateTime -> ', new Date(lastUpdateTime).toISOString(), ', sendUpdatesInterval -> ', appInst.sendUpdatesInterval);
+                    // console.log('sending step update -> ', new Date().toISOString(), ', lines -> ', tmpXLines, ', updateId -> ', updateId, ' -> ', new Date().toISOString());
+                    const updates: any = { tail: params.lastXLines, stdout: stdoutToUpload, status: Enums.StepStatus.RUNNING, lastUpdateId: params.updateId };
+                    await params.appInst.RestAPICall(`stepOutcome/${params.stepOutcomeId}`, 'PUT', null, updates);
+                    params.updateId += 1;
+
+                    if (params.stdoutTruncated)
+                        break;
+                }
+            } catch (err) {
+                this.LogError(`Error handling stdout tail: ${err.message}`, err.stack, {});
+                await SGUtils.sleep(1000);
+            }
+        }
+        console.log('RunningTailHandler -> params.stdoutAnalysisFinished -> ', params.stdoutAnalysisFinished);
+        params.stdoutAnalysisFinished = true;
+        console.log('RunningTailHandler -> params.stdoutAnalysisFinished -> ', params.stdoutAnalysisFinished);
+    }
+
+    RunStepAsync_Lambda = async (step: StepSchema, workingDirectory: string, task: TaskSchema, stepOutcomeId: mongodb.ObjectId, lastUpdatedId: number, taskOutcomeId: mongodb.ObjectId) => {
+        const appInst = this;
+        return new Promise(async (resolve, reject) => {
+            try {
+                let updateId = lastUpdatedId + 1;
+                let lastXLines: string[] = [];
+                let rtvCumulative: any = {};
+                let queueTail: any[] = [];
+                let procFinished: boolean = false;
+                let stdoutAnalysisFinished: boolean = false;
+                let stdoutBytesProcessed: number = 0;
+                let stdoutTruncated: boolean = false;
+                let runParams: any = { queueTail, procFinished, taskOutcomeId, appInst, rtvCumulative, lastXLines, stdoutTruncated, stdoutBytesProcessed, updateId, stepOutcomeId, stdoutAnalysisFinished };
+
+                const stdoutFileName = workingDirectory + path.sep + SGUtils.makeid(10) + '.out';
+                const out = fs.openSync(stdoutFileName, 'w');
+
+                let code: any = {};
+                let zipFilePath: string = '';
+                if (!(step.lambdaZipfile)) {
+                    if (step.lambdaRuntime.startsWith('node')) {
+                        zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_NodeJS(workingDirectory, SGUtils.atob(step.script.code)));
+                        const zipContents = fs.readFileSync(zipFilePath);
+                        code.ZipFile = zipContents;
+                    }
+                } else {
+                    let artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, 'GET', null, null);
+                    code.S3Bucket = step.s3Bucket;
+                    code.S3Key = artifact.url;
+                }
+
+                await SGUtils.CreateAWSLambda(task._teamId, task._jobId, step.lambdaRole, task.id, code, step.lambdaRuntime, step.lambdaMemorySize, step.lambdaTimeout, step.lambdaAWSRegion);
+
+                if (zipFilePath) {
+                    try { if (fs.existsSync(zipFilePath)) fs.unlinkSync(zipFilePath); } catch (e) { }
+                }
+
+                let payload = {};
+                if (step.variables)
+                    payload = Object.assign(payload, step.variables);
+                runningProcesses[runParams.taskOutcomeId] = 'no requestId yet';
+                await SGUtils.RunAWSLambda(task.id, step.lambdaAWSRegion, payload);
+
+                appInst.RunningTailHandler(runParams);
+
+                let error = '';
+                await SGUtils.GetCloudWatchLogsEvents(task.id, (msgs) => {
+                    for (let i = 0; i < msgs.length; i++) {
+                        console.log('RunStepAsync_Lambda -> GetCloudWatchLogsEvents -> msgs[i] -> ', msgs[i]);
+                        if (msgs[i].message.startsWith('START')) {
+                            const requestId = msgs[i].message.split(' ')[2]
+                            runningProcesses[runParams.taskOutcomeId] = requestId;
+                        } else {
+                            let msg = msgs[i].message.split('\t');
+                            if (msg.length > 2) {
+                                if (msg[2] == 'ERROR') {
+                                    error = msg;
+                                    if (msg.length > 4) {
+                                        const jmsg = JSON.parse(msg[4]);
+                                        if ('stack' in jmsg)
+                                            error = jmsg.stack;
+                                    }
+                                }
+                            }
+                        }
+                        runParams.queueTail.push(msgs[i]);
+                    }
+
+                    console.log('RunStepAsync_Lambda -> queueTail -> ', runParams.queueTail);
+                    fs.writeSync(out, msgs.join('\n'));
+                });
+
+                runParams.procFinished = true;
+
+                console.log('RunStepAsync_Lambda -> procFinished -> true');
+
+                await SGUtils.sleep(100);
+                while (!runParams.stdoutAnalysisFinished)
+                    await SGUtils.sleep(100);
+
+                console.log('RunStepAsync_Lambda -> stdoutAnalysisFinished -> ', runParams.stdoutAnalysisFinished);
+
+                fs.closeSync(out);
+
+                let parseStdoutResult: any = {};
+                if (fs.existsSync(stdoutFileName)) {
+                    parseStdoutResult = await this.ParseScriptStdout(stdoutFileName, true, runParams.stdoutBytesProcessed, runParams.stdoutTruncated);
+                    runParams.lastXLines = runParams.lastXLines.concat(parseStdoutResult.lastXLines).slice(-appInst.numLinesInTail);
+                } else {
+                    parseStdoutResult.output = '';
+                    parseStdoutResult.runtimeVars = {};
+                }
+
+                let runtimeVars: any = {};
+                Object.assign(runtimeVars, parseStdoutResult.runtimeVars)
+
+                let outParams: any = {};
+                if (error == '') {
+                    code = 0;
+                    outParams[SGStrings.status] = Enums.StepStatus.SUCCEEDED;
+                } else {
+                    code = -1;
+                    runtimeVars['route'] = 'fail';
+                    outParams[SGStrings.status] = Enums.StepStatus.FAILED;
+                    outParams['failureCode'] = Enums.TaskFailureCode.TASK_EXEC_ERROR;
+                }
+
+                outParams['runtimeVars'] = runtimeVars;
+                outParams['dateCompleted'] = new Date().toISOString();
+                outParams['stdout'] = parseStdoutResult.output;
+                outParams['tail'] = runParams.lastXLines;
+                outParams['stderr'] = error;
+                outParams['exitCode'] = code;
+                outParams['lastUpdateId'] = runParams.updateId + 1;
+
+                await SGUtils.DeleteAWSLambda(task.id, step.lambdaAWSRegion);
+                await SGUtils.DeleteCloudWatchLogsEvents(task.id);
+                resolve(outParams);
+            } catch (e) {
+                this.LogError('Error in RunStepAsync: ' + e.message, e.stack, {});
+                await SGUtils.sleep(1000);
+                resolve({ 'status': Enums.StepStatus.FAILED, 'code': -1, 'route': 'fail', 'stderr': e.message, 'failureCode': TaskFailureCode.AGENT_EXEC_ERROR });
+            }
+        })
+    }
+
     RunStepAsync = async (step: StepSchema, workingDirectory: string, task: TaskSchema, stepOutcomeId: mongodb.ObjectId, lastUpdatedId: number, taskOutcomeId: mongodb.ObjectId) => {
         const appInst = this;
         return new Promise(async (resolve, reject) => {
@@ -1020,6 +1237,7 @@ export default class Agent {
                         let parseStdoutResult: any = {};
                         if (fs.existsSync(stdoutFileName)) {
                             parseStdoutResult = await this.ParseScriptStdout(stdoutFileName, true, stdoutBytesProcessed, stdoutTruncated);
+                            lastXLines = lastXLines.concat(parseStdoutResult.lastXLines).slice(-appInst.numLinesInTail);
                         } else {
                             parseStdoutResult.output = '';
                             parseStdoutResult.runtimeVars = {};
@@ -1061,7 +1279,7 @@ export default class Agent {
                         outParams['runtimeVars'] = runtimeVars;
                         outParams['dateCompleted'] = new Date().toISOString();
                         outParams['stdout'] = parseStdoutResult.output;
-                        outParams['tail'] = parseStdoutResult.lastXLines;
+                        outParams['tail'] = lastXLines;
                         outParams['stderr'] = parseStderrResult.output;
                         outParams['exitCode'] = code;
                         outParams['lastUpdateId'] = updateId + 1;
@@ -1207,8 +1425,15 @@ export default class Agent {
             artifactsDownloadedSize: artifactsDownloadedSize,
             target: task.target,
             runtimeVars: task.runtimeVars,
-            autoRestart: task.autoRestart
+            autoRestart: task.autoRestart,
+            executionEnvironment: task.executionEnvironment
         }
+
+        if (task.executionEnvironment != Enums.ExecutionEnvironment.CLIENT) {
+            taskOutcome.ipAddress = '0.0.0.0';
+            taskOutcome.machineId = 'lambda-executor';
+        }
+
         taskOutcome = <TaskOutcomeSchema>await this.RestAPICall(`taskOutcome`, 'POST', null, taskOutcome);
         // console.log('taskOutcome -> POST -> ', util.inspect(taskOutcome, false, null));
         if (taskOutcome.status == Enums.TaskStatus.RUNNING) {
@@ -1297,10 +1522,21 @@ export default class Agent {
                     status: Enums.TaskStatus.RUNNING,
                     dateStarted: new Date().toISOString()
                 };
+
+                if (task.executionEnvironment != Enums.ExecutionEnvironment.CLIENT) {
+                    stepOutcome.ipAddress = '0.0.0.0';
+                    stepOutcome.machineId = 'lambda-executor';
+                }
+
                 stepOutcome = <StepOutcomeSchema>await this.RestAPICall(`stepOutcome`, 'POST', null, stepOutcome);
 
                 // console.log('Agent -> RunTask -> RunStepAsync -> step -> ', util.inspect(step, false, null));
-                let res: any = await this.RunStepAsync(step, workingDirectory, task, stepOutcome.id, stepOutcome.lastUpdateId, taskOutcome.id);
+                let res: any;
+                if (task.executionEnvironment == Enums.ExecutionEnvironment.AWS_LAMBDA) {
+                    res = await this.RunStepAsync_Lambda(step, workingDirectory, task, stepOutcome.id, stepOutcome.lastUpdateId, taskOutcome.id);
+                } else {
+                    res = await this.RunStepAsync(step, workingDirectory, task, stepOutcome.id, stepOutcome.lastUpdateId, taskOutcome.id);
+                }
                 lastStepOutcome = res;
                 // console.log('Agent -> RunTask -> RunStepAsync -> res -> ', util.inspect(res, false, null));
 
@@ -1354,7 +1590,7 @@ export default class Agent {
                 _teamId: _teamId,
                 _jobId: params._jobId,
                 _taskId: params.id,
-                _agentId: this.instanceId.toHexString(),
+                _agentId: this.instanceId,
                 source: params.source,
                 sourceTaskRoute: params.sourceTaskRoute,
                 correlationId: params.correlationId,

@@ -26,4 +26,18 @@ export class StepSchema {
   variables: any;
 
   lastUpdateId: number;
+
+  lambdaRuntime?: string;
+
+  lambdaMemorySize?: number;
+
+  lambdaTimeout?: number;
+
+  lambdaZipfile?: string;
+  
+  lambdaRole?: string;
+
+  s3Bucket?: string;
+
+  lambdaAWSRegion?: string;
 };

@@ -1,6 +1,16 @@
 import * as os from 'os';
+import * as fs from 'fs';
 import { exec } from 'child_process';
 import * as compressing from 'compressing';
+import * as path from 'path';
+import { zip } from 'zip-a-folder';
+import * as AWS from 'aws-sdk';
+
+
+AWS.config.apiVersions = { 
+    lambda: '2015-03-31',
+    cloudwatchlogs: '2014-03-28'
+};
 
 
 export class SGUtils {
@@ -68,30 +78,6 @@ export class SGUtils {
         }
 
         return newScript;
-
-        // // find dynamically injected scripts
-        // let arrFindScriptsToInject: string[] = script_code.match(/@sgs?(\([^)]*\))/g);
-        // let scriptsToInject: any = {};
-        // if (arrFindScriptsToInject) {
-        //     for (let i = 0; i < arrFindScriptsToInject.length; i++) {
-        //         try {
-        //             let scriptKey = arrFindScriptsToInject[i].substr(5, arrFindScriptsToInject[i].length - 6);
-        //             if (scriptKey.substr(0, 1) === '"' && scriptKey.substr(scriptKey.length - 1, 1) === '"')
-        //                 scriptKey = scriptKey.slice(1, -1);
-        //             let scriptQuery: ScriptSchema[] = await scriptService.findScript(_teamId, new mongodb.ObjectId(scriptKey), 'code')
-        //             if (!scriptQuery || (_.isArray(scriptQuery) && scriptQuery.length === 0))
-        //                 throw new MissingObjectError(`Script ${scriptKey} not found.`);
-        //             const injectedScriptCode = SGUtils.atob(scriptQuery[0].code);
-        //             let subScriptsToInject = await SGUtils.getInjectedScripts(_teamId, injectedScriptCode);
-        //             scriptsToInject[scriptKey] = scriptQuery[0].code;
-        //             scriptsToInject = Object.assign(scriptsToInject, subScriptsToInject);
-        //         } catch (e) {
-        //             throw new Error(`Error in script @sgs capture for string \"${arrFindScriptsToInject[i]}\": ${e.message}`);
-        //         }
-        //     }
-        // }
-
-        // return scriptsToInject;
     }
 
     static getIpAddress() {
@@ -199,6 +185,209 @@ export class SGUtils {
         });
 
         return uncompressedFilePath;
+    }
+
+
+    static ZipFolder = async (path: string) => {
+        const compressedFilePath: string = SGUtils.ChangeFileExt(path, "zip");
+        await zip(path, compressedFilePath);
+        return compressedFilePath;
+    };
+
+
+    static GetCloudWatchLogsEvents = async (lambdaFnName: string, fnOnLogEvents: any) => {
+        return new Promise( async (resolve, reject) => {
+            let cwl = new AWS.CloudWatchLogs();
+
+            const logGroupName: string = `/aws/lambda/${lambdaFnName}`;
+
+            let describeLogParams: any = {
+                logGroupName,
+                descending: true,
+                orderBy: "LastEventTime"
+            };
+
+            const maxTries = 10;
+            let numTries = 0;
+            let logStreamName: string = '';
+            while (numTries < maxTries) {
+                logStreamName = await new Promise((resolve, reject) => {
+                    cwl.describeLogStreams(describeLogParams, function (err, data) {
+                        let success: boolean = true;
+                        if (err) {
+                            if (err.message != 'The specified log group does not exist.') {
+                                reject(err);
+                                success = false;
+                            }
+                        }
+
+                        if (success) {
+                            if (data && 'logStreams' in data && data.logStreams.length > 0) {
+                                resolve(data.logStreams[0].logStreamName);
+                            } else {
+                                resolve('');
+                            }
+                        }
+                    });
+                });
+
+                if (logStreamName != '')
+                    break;
+
+                numTries += 1;
+                await SGUtils.sleep(6000);
+            }
+
+            if (logStreamName == '') {
+                reject('Timeout');
+                return;
+            }
+
+            let nextToken = undefined;
+            let getLogEventsParams: any = {
+                logGroupName,
+                logStreamName,
+                startFromHead: true,
+                limit: 10,
+                nextToken
+              };
+
+            while (true) {
+                let res: any = await new Promise((resolve, reject) => {
+                    cwl.getLogEvents(getLogEventsParams, function (err, data) {
+                        if (err) reject(err);
+                        if (!('events' in data))
+                            reject('getLogEvents data object missing events parameter');
+                        resolve({events: data.events, nextToken: data.nextForwardToken});
+                    });
+                });
+
+                if (res.events.length > 0) {
+                    fnOnLogEvents(res.events);
+                    let reachedLogEnd: boolean = false;
+                    for (let i = 0; i < res.events.length; i++) {
+                        if (res.events[i].message.startsWith('REPORT RequestId:')) {
+                            console.log('GetCloudWatchLogsEvents -> finished');
+                            reachedLogEnd = true;
+                            break;
+                        }
+                    }
+
+                    if (reachedLogEnd)
+                        break;
+                }
+
+                getLogEventsParams.nextToken = res.nextToken;
+            }
+
+            resolve();
+        });
+    };
+
+
+    static CreateAWSLambdaZipFile_NodeJS = async (workingDir: string, script: string) => {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const indexFilePath = workingDir + path.sep + 'index.js';
+
+                const code = `
+exports.handler = async (event, context) => {
+${script}
+
+    return {logStreamName: context.logStreamName, awsRequestId: context.awsRequestId};
+};
+        `;
+
+                fs.writeFileSync(indexFilePath, code);
+                const compressedFilePath: string = await SGUtils.ZipFolder(path.dirname(indexFilePath));
+                resolve(compressedFilePath);
+            } catch (e) {
+                reject(e);
+            }
+        });
+    };
+
+
+    static DeleteCloudWatchLogsEvents = async (lambdaFnName: string) => {
+        return new Promise( async (resolve, reject) => {
+            let cwl = new AWS.CloudWatchLogs();
+
+            const logGroupName: string = `/aws/lambda/${lambdaFnName}`;
+
+            let deleteLogParams: any = {
+                logGroupName
+            };
+
+            cwl.deleteLogGroup(deleteLogParams, function (err, data) {
+                if (err) reject(err);
+                resolve('');
+            });
+        });
+    };
+
+
+    static CreateAWSLambda = async (teamId: string, jobId: string, lambdaRole: string, lambdaFnName: string, code: any, runtime: string, memorySize: number, timeout: number, awsRegion: string) => {
+        return new Promise( async (resolve, reject) => {
+            var params: any = {
+                Description: `Lambda function ${lambdaFnName}`, 
+                FunctionName: lambdaFnName, 
+                Handler: "index.handler", 
+                MemorySize: memorySize, 
+                Publish: true, 
+                Role: lambdaRole, 
+                Runtime: runtime, 
+                Tags: {
+                    "TeamId": teamId,
+                    "JobId": jobId
+                }, 
+                Timeout: timeout,
+                Code: code
+            };
+
+            AWS.config.region = awsRegion;
+            
+            const lambda = new AWS.Lambda({maxRetries: 0});
+            lambda.createFunction(params, function(err, data) {
+                if (err) reject(err);
+                resolve(data);
+            });
+        });
+    }
+
+
+    static RunAWSLambda = async (lambdaFnName: string, awsRegion: string, payload: any) => {
+        return new Promise( async (resolve, reject) => {
+            var params = {
+                FunctionName: lambdaFnName,
+                InvocationType: "Event",
+                Payload: JSON.stringify(payload)
+              };
+
+            AWS.config.region = awsRegion;
+            
+            const lambda = new AWS.Lambda();
+            lambda.invoke(params, function(err, data) {
+                if (err) reject(err);
+                resolve(data);
+            });
+        });
+    }
+
+
+    static DeleteAWSLambda = async (lambdaFnName: string, awsRegion: string) => {
+        return new Promise( async (resolve, reject) => {
+            var params: any = {
+                FunctionName: lambdaFnName
+            };
+
+            AWS.config.region = awsRegion;
+            
+            const lambda = new AWS.Lambda();
+            lambda.deleteFunction(params, function(err, data) {
+                if (err) reject(err);
+                resolve(data);
+            });
+        });
     }
 }
 

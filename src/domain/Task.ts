@@ -46,4 +46,6 @@ export class TaskSchema {
     scriptsToInject?: any;
 
     autoRestart: boolean;
+
+    executionEnvironment?: number;
 };
