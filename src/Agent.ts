@@ -1007,7 +1007,7 @@ export default class Agent {
                 let zipFilePath: string = '';
                 if (!(step.lambdaZipfile)) {
                     if (step.lambdaRuntime.startsWith('node')) {
-                        zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_NodeJS(workingDirectory, SGUtils.atob(step.script.code)));
+                        zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_NodeJS(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies));
                         const zipContents = fs.readFileSync(zipFilePath);
                         code.ZipFile = zipContents;
                     }
@@ -1099,7 +1099,7 @@ export default class Agent {
                 await SGUtils.DeleteCloudWatchLogsEvents(task.id);
                 resolve(outParams);
             } catch (e) {
-                this.LogError('Error in RunStepAsync: ' + e.message, e.stack, {});
+                this.LogError('Error in RunStepAsync_Lambda: ' + e.message, e.stack, {});
                 await SGUtils.sleep(1000);
                 resolve({ 'status': Enums.StepStatus.FAILED, 'code': -1, 'route': 'fail', 'stderr': e.message, 'failureCode': TaskFailureCode.AGENT_EXEC_ERROR });
             }
@@ -1785,43 +1785,6 @@ export default class Agent {
         }
     };
 
-    async RunShellCommand(commandString: any, args: string[]) {
-        return new Promise((resolve, reject) => {
-            try {
-                let stdout: string = '';
-                this.LogDebug('RunShellCommand: ' + commandString + ' ' + args, {});
-                let cmd: any = spawn(commandString, args, { stdio: 'pipe', shell: true });
-
-                cmd.stdout.on('data', (data) => {
-                    try {
-                        this.LogDebug('RunShellCommand on.stdout.data: ' + data, {});
-                        stdout = data.toString();
-                    } catch (e) {
-                        this.LogError('Error handling stdout in RunShellCommand: ' + e.message, e.stack, {});
-                    }
-                });
-
-                cmd.stderr.on('data', (data) => {
-                    try {
-                        this.LogDebug('Error in RunShellCommand on.stderr.data: ' + data, {});
-                        // console.log(`agent err: ${data.toString()}`);
-                    } catch (e) {
-                        this.LogError('Error handling stderr in RunShellCommand: ' + e.message, e.stack, {});
-                    }
-                });
-
-                cmd.on('exit', (code) => {
-                    try {
-                        resolve({ 'code': code, 'stdout': stdout });
-                    } catch (e) {
-                        this.LogError('Error handling exit in RunShellCommand: ' + e.message, e.stack, {});
-                    }
-                });
-            } catch (e) {
-                this.LogError(`RunShellCommand '${commandString}': ${e.message}`, e.stack, {});
-            }
-        })
-    };
 
     async GetCronTab() {
         const commandString: string = 'crontab -l';

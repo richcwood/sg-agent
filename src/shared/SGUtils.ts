@@ -101,6 +101,8 @@ export class SGUtils {
     };
 
 
+
+    
     static async RunCommand(commandString: any, options: any) {
         return new Promise((resolve, reject) => {
             try {
@@ -284,10 +286,24 @@ export class SGUtils {
     };
 
 
-    static CreateAWSLambdaZipFile_NodeJS = async (workingDir: string, script: string) => {
+    static CreateAWSLambdaZipFile_NodeJS = async (workingDir: string, script: string, lambdaDependencies: string) => {
         return new Promise(async (resolve, reject) => {
             try {
                 const indexFilePath = workingDir + path.sep + 'index.js';
+
+                const lstLambdaDependencies = lambdaDependencies.split(';').filter(li => li.trim());
+                if (lstLambdaDependencies.length > 0) {
+                    let res: any = await SGUtils.RunCommand(`npm init -y`, { cwd: workingDir });
+                    if (res.code != 0)
+                        throw new Error(`Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
+
+                    for (let i = 0; i < lstLambdaDependencies.length; i++) {
+                        let res: any = await SGUtils.RunCommand(`npm i --save ${lstLambdaDependencies[i]}`, { cwd: workingDir });
+                        if (res.code != 0) {
+                            throw new Error(`Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
+                        }
+                    }
+                }
 
                 const code = `
 exports.handler = async (event, context) => {

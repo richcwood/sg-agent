@@ -40,4 +40,6 @@ export class StepSchema {
   s3Bucket?: string;
 
   lambdaAWSRegion?: string;
+
+  lambdaDependencies? : string;
 };
