@@ -323,6 +323,45 @@ ${script}
     };
 
 
+    static CreateAWSLambdaZipFile_Python = async (workingDir: string, script: string, lambdaDependencies: string, lambdaFnName: string) => {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const indexFilePath = workingDir + path.sep + 'lambda_function.py';
+                const runFilePath = workingDir + path.sep + lambdaFnName + '.py';
+
+                const lstLambdaDependencies = lambdaDependencies.split(';').filter(li => li.trim());
+                if (lstLambdaDependencies.length > 0) {
+                    for (let i = 0; i < lstLambdaDependencies.length; i++) {
+                        let res: any = await SGUtils.RunCommand(`pip install ${lstLambdaDependencies[i]} -t .`, { cwd: workingDir });
+                        if (res.code != 0) {
+                            throw new Error(`Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
+                        }
+                    }
+                }
+
+                const code = `
+import json
+
+def lambda_handler(event, context):
+    __import__('${lambdaFnName}')
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Hello from Lambda!')
+    }
+`;
+                fs.writeFileSync(indexFilePath, code);
+
+                fs.writeFileSync(runFilePath, script);
+
+                const compressedFilePath: string = await SGUtils.ZipFolder(path.dirname(indexFilePath));
+                resolve(compressedFilePath);
+            } catch (e) {
+                reject(e);
+            }
+        });
+    };
+
+
     static DeleteCloudWatchLogsEvents = async (lambdaFnName: string) => {
         return new Promise( async (resolve, reject) => {
             let cwl = new AWS.CloudWatchLogs();
@@ -341,12 +380,12 @@ ${script}
     };
 
 
-    static CreateAWSLambda = async (teamId: string, jobId: string, lambdaRole: string, lambdaFnName: string, code: any, runtime: string, memorySize: number, timeout: number, awsRegion: string) => {
+    static CreateAWSLambda = async (teamId: string, jobId: string, lambdaRole: string, lambdaFnName: string, code: any, runtime: string, memorySize: number, timeout: number, awsRegion: string, handler: string) => {
         return new Promise( async (resolve, reject) => {
             var params: any = {
                 Description: `Lambda function ${lambdaFnName}`, 
                 FunctionName: lambdaFnName, 
-                Handler: "index.handler", 
+                Handler: handler, 
                 MemorySize: memorySize, 
                 Publish: true, 
                 Role: lambdaRole, 

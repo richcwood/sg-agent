@@ -314,7 +314,7 @@ export default class Agent {
     }
 
 
-    async GetArtifact(artifactId: string, destPath: string) {
+    async GetArtifact(artifactId: string, destPath: string, _teamId: string) {
         return new Promise(async (resolve, reject) => {
             try {
                 let artifact: any = await this.RestAPICall(`artifact/${artifactId}`, 'GET', null, null);
@@ -931,8 +931,8 @@ export default class Agent {
                 }
 
                 if (Object.keys(rtvUpdates).length > 0) {
-                    // console.log(`****************** taskOutcomeId -> ${taskOutcomeId}`);
-                    await params.appInst.RestAPICall(`taskOutcome/${params.taskOutcomeId}`, 'PUT', null, { runtimeVars: rtvUpdates });
+                    // console.log(`****************** taskOutcomeId -> ${params.taskOutcomeId}, runtimeVars -> ${JSON.stringify(rtvUpdates)}`);
+                    await params.appInst.RestAPICall(`taskOutcome/${params.taskOutcomeId}`, 'PUT', null, { _teamId: params._teamId, runtimeVars: rtvUpdates });
                 }
 
                 params.lastXLines = params.lastXLines.concat(dataStrings).slice(-params.appInst.numLinesInTail);
@@ -971,7 +971,7 @@ export default class Agent {
 
                     // console.log('================== -> ', new Date().toISOString(), ', lastUpdateTime -> ', new Date(lastUpdateTime).toISOString(), ', sendUpdatesInterval -> ', appInst.sendUpdatesInterval);
                     // console.log('sending step update -> ', new Date().toISOString(), ', lines -> ', tmpXLines, ', updateId -> ', updateId, ' -> ', new Date().toISOString());
-                    const updates: any = { tail: params.lastXLines, stdout: stdoutToUpload, status: Enums.StepStatus.RUNNING, lastUpdateId: params.updateId };
+                    const updates: any = { _teamId: params._teamId, tail: params.lastXLines, stdout: stdoutToUpload, status: Enums.StepStatus.RUNNING, lastUpdateId: params.updateId };
                     await params.appInst.RestAPICall(`stepOutcome/${params.stepOutcomeId}`, 'PUT', null, updates);
                     params.updateId += 1;
 
@@ -998,26 +998,34 @@ export default class Agent {
                 let stdoutAnalysisFinished: boolean = false;
                 let stdoutBytesProcessed: number = 0;
                 let stdoutTruncated: boolean = false;
-                let runParams: any = { queueTail, procFinished, taskOutcomeId, appInst, rtvCumulative, lastXLines, stdoutTruncated, stdoutBytesProcessed, updateId, stepOutcomeId, stdoutAnalysisFinished };
+                let _teamId: string = step._teamId;
+                let runParams: any = { queueTail, procFinished, taskOutcomeId, appInst, rtvCumulative, lastXLines, stdoutTruncated, stdoutBytesProcessed, updateId, stepOutcomeId, stdoutAnalysisFinished, _teamId };
 
                 const stdoutFileName = workingDirectory + path.sep + SGUtils.makeid(10) + '.out';
                 const out = fs.openSync(stdoutFileName, 'w');
 
                 let code: any = {};
                 let zipFilePath: string = '';
+                let handler: string = '';
                 if (!(step.lambdaZipfile)) {
                     if (step.lambdaRuntime.startsWith('node')) {
                         zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_NodeJS(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies));
                         const zipContents = fs.readFileSync(zipFilePath);
                         code.ZipFile = zipContents;
+                        handler = 'index.handler';
+                    } else if (step.lambdaRuntime.startsWith('python')) {
+                        zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_Python(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
+                        const zipContents = fs.readFileSync(zipFilePath);
+                        code.ZipFile = zipContents;
+                        handler = 'lambda_function.lambda_handler';
                     }
                 } else {
-                    let artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, 'GET', null, null);
+                    let artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, 'GET', null, { _teamId });
                     code.S3Bucket = step.s3Bucket;
                     code.S3Key = artifact.url;
                 }
 
-                await SGUtils.CreateAWSLambda(task._teamId, task._jobId, step.lambdaRole, task.id, code, step.lambdaRuntime, step.lambdaMemorySize, step.lambdaTimeout, step.lambdaAWSRegion);
+                await SGUtils.CreateAWSLambda(task._teamId, task._jobId, step.lambdaRole, task.id, code, step.lambdaRuntime, step.lambdaMemorySize, step.lambdaTimeout, step.lambdaAWSRegion, handler);
 
                 if (zipFilePath) {
                     try { if (fs.existsSync(zipFilePath)) fs.unlinkSync(zipFilePath); } catch (e) { }
@@ -1053,7 +1061,7 @@ export default class Agent {
                         runParams.queueTail.push(msgs[i]);
                     }
 
-                    fs.writeSync(out, msgs.join('\n'));
+                    fs.writeSync(out, msgs.map((m) => m.message).join('\n'));
                 });
 
                 runParams.procFinished = true;
@@ -1094,6 +1102,7 @@ export default class Agent {
                 outParams['stderr'] = error;
                 outParams['exitCode'] = code;
                 outParams['lastUpdateId'] = runParams.updateId + 1;
+                outParams['_teamId'] = _teamId;
 
                 await SGUtils.DeleteAWSLambda(task.id, step.lambdaAWSRegion);
                 await SGUtils.DeleteCloudWatchLogsEvents(task.id);
@@ -1382,7 +1391,7 @@ export default class Agent {
             for (let i = 0; i < task.artifacts.length; i++) {
                 let artifactSize: number = 0;
                 try {
-                    artifactSize = (<number>await this.GetArtifact(task.artifacts[i], workingDirectory));
+                    artifactSize = (<number>await this.GetArtifact(task.artifacts[i], workingDirectory, this._teamId));
                 } catch (err) {
                     this.LogError('Error in RunTask: ' + err.message, err.stack, task.artifacts[i]);
                 }
@@ -1412,11 +1421,11 @@ export default class Agent {
             artifactsDownloadedSize: artifactsDownloadedSize,
             target: task.target,
             runtimeVars: task.runtimeVars,
-            autoRestart: task.autoRestart,
-            executionEnvironment: task.executionEnvironment
+            autoRestart: task.autoRestart
         }
 
-        if (task.executionEnvironment != Enums.ExecutionEnvironment.CLIENT) {
+        if (task.target == Enums.TaskDefTarget.AWS_LAMBDA) {
+            taskOutcome._teamId = task._teamId;
             taskOutcome.ipAddress = '0.0.0.0';
             taskOutcome.machineId = 'lambda-executor';
         }
@@ -1510,7 +1519,8 @@ export default class Agent {
                     dateStarted: new Date().toISOString()
                 };
 
-                if (task.executionEnvironment != Enums.ExecutionEnvironment.CLIENT) {
+                if (task.target == Enums.TaskDefTarget.AWS_LAMBDA) {
+                    stepOutcome._teamId = task._teamId;
                     stepOutcome.ipAddress = '0.0.0.0';
                     stepOutcome.machineId = 'lambda-executor';
                 }
@@ -1519,7 +1529,7 @@ export default class Agent {
 
                 // console.log('Agent -> RunTask -> RunStepAsync -> step -> ', util.inspect(step, false, null));
                 let res: any;
-                if (task.executionEnvironment == Enums.ExecutionEnvironment.AWS_LAMBDA) {
+                if (task.target == Enums.TaskDefTarget.AWS_LAMBDA) {
                     res = await this.RunStepAsync_Lambda(step, workingDirectory, task, stepOutcome.id, stepOutcome.lastUpdateId, taskOutcome.id);
                 } else {
                     res = await this.RunStepAsync(step, workingDirectory, task, stepOutcome.id, stepOutcome.lastUpdateId, taskOutcome.id);
@@ -1559,6 +1569,9 @@ export default class Agent {
                 taskOutcomeUpdates.failureCode = taskOutcome.failureCode;
             taskOutcomeUpdates.dateCompleted = dateCompleted;
             taskOutcomeUpdates.runtimeVars = taskOutcome.runtimeVars;
+
+            if (task.target == Enums.TaskDefTarget.AWS_LAMBDA)
+                taskOutcomeUpdates._teamId = task._teamId;            
             // console.log(`???????????????????\n\ntaskOutcomeId -> ${taskOutcome.id}\n\ntaskOutcome -> ${JSON.stringify(taskOutcome)}\n\ntask -> ${JSON.stringify(task)}\n\ntaskOutcomeUpdates -> ${JSON.stringify(taskOutcomeUpdates)}`);
             this.queueCompleteMessages.push({ url: `taskOutcome/${taskOutcome.id}`, method: 'PUT', headers: null, data: taskOutcomeUpdates });
             // console.log('taskOutcome -> PUT -> ', util.inspect(taskOutcome, false, null));
