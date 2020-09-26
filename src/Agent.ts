@@ -989,6 +989,7 @@ export default class Agent {
     RunStepAsync_Lambda = async (step: StepSchema, workingDirectory: string, task: TaskSchema, stepOutcomeId: mongodb.ObjectId, lastUpdatedId: number, taskOutcomeId: mongodb.ObjectId) => {
         const appInst = this;
         return new Promise(async (resolve, reject) => {
+            let error = '';
             try {
                 let updateId = lastUpdatedId + 1;
                 let lastXLines: string[] = [];
@@ -999,7 +1000,8 @@ export default class Agent {
                 let stdoutBytesProcessed: number = 0;
                 let stdoutTruncated: boolean = false;
                 let _teamId: string = step._teamId;
-                let runParams: any = { queueTail, procFinished, taskOutcomeId, appInst, rtvCumulative, lastXLines, stdoutTruncated, stdoutBytesProcessed, updateId, stepOutcomeId, stdoutAnalysisFinished, _teamId };
+                let runLambdaFinished: boolean = false;
+                let runParams: any = { queueTail, procFinished, taskOutcomeId, appInst, rtvCumulative, lastXLines, stdoutTruncated, stdoutBytesProcessed, updateId, stepOutcomeId, stdoutAnalysisFinished, _teamId, runLambdaFinished };
 
                 const stdoutFileName = workingDirectory + path.sep + SGUtils.makeid(10) + '.out';
                 const out = fs.openSync(stdoutFileName, 'w');
@@ -1009,7 +1011,7 @@ export default class Agent {
                 let handler: string = '';
                 if (!(step.lambdaZipfile)) {
                     if (step.lambdaRuntime.startsWith('node')) {
-                        zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_NodeJS(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies));
+                        zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_NodeJS(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
                         const zipContents = fs.readFileSync(zipFilePath);
                         code.ZipFile = zipContents;
                         handler = 'index.handler';
@@ -1035,12 +1037,21 @@ export default class Agent {
                 if (step.variables)
                     payload = Object.assign(payload, step.variables);
                 runningProcesses[runParams.taskOutcomeId] = 'no requestId yet';
-                await SGUtils.RunAWSLambda(task.id, step.lambdaAWSRegion, payload);
+                let runLambdaError: any;
+                let runLambdaResult: any;
+                SGUtils.RunAWSLambda(task.id, step.lambdaAWSRegion, payload, (err, data) => {
+                    if (err) {
+                        runLambdaError = err;
+                        runParams.runLambdaFinished = true;
+                    }
+                    if (data) {
+                        runLambdaResult = data;
+                    }
+                });
 
                 appInst.RunningTailHandler(runParams);
 
-                let error = '';
-                await SGUtils.GetCloudWatchLogsEvents(task.id, (msgs) => {
+                await SGUtils.GetCloudWatchLogsEvents(task.id, runParams, appInst.logger, (msgs) => {
                     for (let i = 0; i < msgs.length; i++) {
                         if (msgs[i].message.startsWith('START')) {
                             const requestId = msgs[i].message.split(' ')[2]
@@ -1053,7 +1064,7 @@ export default class Agent {
                                     if (msg.length > 4) {
                                         const jmsg = JSON.parse(msg[4]);
                                         if ('stack' in jmsg)
-                                            error = jmsg.stack;
+                                            error += (jmsg.stack + '\n');
                                     }
                                 }
                             }
@@ -1071,6 +1082,17 @@ export default class Agent {
                     await SGUtils.sleep(100);
 
                 fs.closeSync(out);
+
+                if (runLambdaError) {
+                    appInst.LogError(runLambdaError.message, runLambdaError.stack, runLambdaError);
+                    error = 'Unknown error occurred running lambda function';
+                }
+                if (runLambdaResult) {
+                    if (runLambdaResult.FunctionError && runLambdaResult.Payload) {
+                        let payload = JSON.parse(runLambdaResult.Payload);
+                        error = `errorType: ${payload.errorType} - errorMessage: ${payload.errorMessage} - stackTrace: ${payload.stackTrace}\n${error}`;
+                    }
+                }
 
                 let parseStdoutResult: any = {};
                 if (fs.existsSync(stdoutFileName)) {
@@ -1110,7 +1132,8 @@ export default class Agent {
             } catch (e) {
                 this.LogError('Error in RunStepAsync_Lambda: ' + e.message, e.stack, {});
                 await SGUtils.sleep(1000);
-                resolve({ 'status': Enums.StepStatus.FAILED, 'code': -1, 'route': 'fail', 'stderr': e.message, 'failureCode': TaskFailureCode.AGENT_EXEC_ERROR });
+                error += (e.message + '\n');
+                resolve({ 'status': Enums.StepStatus.FAILED, 'code': -1, 'route': 'fail', 'stderr': error, 'failureCode': TaskFailureCode.AGENT_EXEC_ERROR });
             }
         })
     }
