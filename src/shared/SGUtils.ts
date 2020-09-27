@@ -403,6 +403,43 @@ def lambda_handler(event, context):
     };
 
 
+    static CreateAWSLambdaZipFile_Ruby = async (workingDir: string, script: string, lambdaDependencies: string, lambdaFnName: string) => {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const indexFilePath = workingDir + path.sep + 'lambda_function.rb';
+                const runFilePath = workingDir + path.sep + lambdaFnName + '.rb';
+
+                const lstLambdaDependencies = lambdaDependencies.split(';').filter(li => li.trim());
+                if (lstLambdaDependencies.length > 0) {
+                    for (let i = 0; i < lstLambdaDependencies.length; i++) {
+                        let res: any = await SGUtils.RunCommand(`pip install ${lstLambdaDependencies[i]} -t .`, { cwd: workingDir });
+                        if (res.code != 0) {
+                            throw new Error(`Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
+                        }
+                    }
+                }
+
+                const code = `
+def lambda_handler(event:, context:)
+
+    success = system("ruby", "${lambdaFnName}.rb")
+
+{ statusCode: 200 }
+end
+`;
+                fs.writeFileSync(indexFilePath, code);
+
+                fs.writeFileSync(runFilePath, script);
+
+                const compressedFilePath: string = await SGUtils.ZipFolder(path.dirname(indexFilePath));
+                resolve(compressedFilePath);
+            } catch (e) {
+                reject(e);
+            }
+        });
+    };
+
+
     static DeleteCloudWatchLogsEvents = async (lambdaFnName: string) => {
         return new Promise( async (resolve, reject) => {
             let cwl = new AWS.CloudWatchLogs();

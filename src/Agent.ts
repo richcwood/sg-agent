@@ -1005,7 +1005,7 @@ export default class Agent {
 
                 const stdoutFileName = workingDirectory + path.sep + SGUtils.makeid(10) + '.out';
                 const out = fs.openSync(stdoutFileName, 'w');
-
+                
                 let code: any = {};
                 let zipFilePath: string = '';
                 let handler: string = '';
@@ -1017,6 +1017,11 @@ export default class Agent {
                         handler = 'index.handler';
                     } else if (step.lambdaRuntime.startsWith('python')) {
                         zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_Python(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
+                        const zipContents = fs.readFileSync(zipFilePath);
+                        code.ZipFile = zipContents;
+                        handler = 'lambda_function.lambda_handler';
+                    } else if (step.lambdaRuntime.startsWith('ruby')) {
+                        zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_Ruby(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
                         const zipContents = fs.readFileSync(zipFilePath);
                         code.ZipFile = zipContents;
                         handler = 'lambda_function.lambda_handler';
