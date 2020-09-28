@@ -411,12 +411,20 @@ def lambda_handler(event, context):
 
                 const lstLambdaDependencies = lambdaDependencies.split(';').filter(li => li.trim());
                 if (lstLambdaDependencies.length > 0) {
+                    let res: any = await SGUtils.RunCommand(`bundle init`, { cwd: workingDir });
+                    if (res.code != 0)
+                        throw new Error(`Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
+
                     for (let i = 0; i < lstLambdaDependencies.length; i++) {
-                        let res: any = await SGUtils.RunCommand(`pip install ${lstLambdaDependencies[i]} -t .`, { cwd: workingDir });
+                        let res: any = await SGUtils.RunCommand(`bundle add ${lstLambdaDependencies[i]} --skip-install`, { cwd: workingDir });
                         if (res.code != 0) {
                             throw new Error(`Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
                         }
                     }
+
+                    res = await SGUtils.RunCommand(`bundle install --path ./`, { cwd: workingDir });
+                    if (res.code != 0)
+                        throw new Error(`Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
                 }
 
                 const code = `

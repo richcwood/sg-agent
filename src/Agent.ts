@@ -1046,10 +1046,12 @@ export default class Agent {
                 let runLambdaResult: any;
                 SGUtils.RunAWSLambda(task.id, step.lambdaAWSRegion, payload, (err, data) => {
                     if (err) {
+                        console.log('RunAWSLambda -> err -> ', err);
                         runLambdaError = err;
                         runParams.runLambdaFinished = true;
                     }
                     if (data) {
+                        console.log('RunAWSLambda -> data -> ', data);
                         runLambdaResult = data;
                     }
                 });
