@@ -336,7 +336,7 @@ export default class Agent {
                 const artifactSize = await new Promise(async (resolve, reject) => {
                     response.data.pipe(writer)
                         .on('finish', () => {
-                            const artifactSize: number = fs.statSync(artifactPath).size
+                            const artifactSize: number = fs.statSync(artifactPath).size;
                             resolve(artifactSize);
                         })
                 });
@@ -991,6 +991,7 @@ export default class Agent {
         return new Promise(async (resolve, reject) => {
             let error = '';
             try {
+                let lambdaFileLoadedToSGAWS: boolean = false;
                 let updateId = lastUpdatedId + 1;
                 let lastXLines: string[] = [];
                 let rtvCumulative: any = {};
@@ -1006,33 +1007,61 @@ export default class Agent {
                 const stdoutFileName = workingDirectory + path.sep + SGUtils.makeid(10) + '.out';
                 const out = fs.openSync(stdoutFileName, 'w');
                 
-                let code: any = {};
+                let lambdaCode: any = {};
                 let zipFilePath: string = '';
                 let handler: string = '';
                 if (!(step.lambdaZipfile)) {
                     if (step.lambdaRuntime.startsWith('node')) {
                         zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_NodeJS(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
                         const zipContents = fs.readFileSync(zipFilePath);
-                        code.ZipFile = zipContents;
+                        lambdaCode.ZipFile = zipContents;
                         handler = 'index.handler';
                     } else if (step.lambdaRuntime.startsWith('python')) {
                         zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_Python(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
                         const zipContents = fs.readFileSync(zipFilePath);
-                        code.ZipFile = zipContents;
+                        lambdaCode.ZipFile = zipContents;
                         handler = 'lambda_function.lambda_handler';
                     } else if (step.lambdaRuntime.startsWith('ruby')) {
                         zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_Ruby(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
                         const zipContents = fs.readFileSync(zipFilePath);
-                        code.ZipFile = zipContents;
+                        lambdaCode.ZipFile = zipContents;
                         handler = 'lambda_function.lambda_handler';
+                    }
+                    const zipFileSizeMB: number = fs.statSync(zipFilePath).size / 1024.0 / 1024.0;
+                    if (zipFileSizeMB > 0) {
+                        let s3Path = `lambda/${task.id}`;
+                        let res: any = await SGUtils.RunCommand(`aws s3 cp ${zipFilePath} s3://${step.s3Bucket}/${s3Path}`, {})
+                        if (res.stderr != '' || res.code != 0) {
+                            appInst.LogError(`Error loading large lambda function to S3: ${res.stderr}`, '', {stdout: res.stdout, code: res.code});
+                            throw new Error (`Error loading lambda function`);
+                        }
+                        lambdaCode.S3Bucket = step.s3Bucket;
+                        lambdaCode.S3Key = s3Path;
+                        delete lambdaCode.ZipFile;
+                        lambdaFileLoadedToSGAWS = true;
                     }
                 } else {
                     let artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, 'GET', null, { _teamId });
-                    code.S3Bucket = step.s3Bucket;
-                    code.S3Key = artifact.url;
+                    lambdaCode.S3Bucket = step.s3Bucket;
+
+                    let s3Path = '';
+                    if (appInst.env != 'production') {
+                        if (appInst.env == 'unittest')
+                            s3Path += `debug/`;
+                        else
+                            s3Path += `${appInst.env}/`;
+                    }
+                    s3Path += `${_teamId}/`;
+            
+                    if (artifact.prefix)
+                        s3Path += `${artifact.prefix}`;
+                    s3Path += artifact.name;
+
+                    lambdaCode.S3Key = s3Path;
+                    handler = step.lambdaFunctionHandler;
                 }
 
-                await SGUtils.CreateAWSLambda(task._teamId, task._jobId, step.lambdaRole, task.id, code, step.lambdaRuntime, step.lambdaMemorySize, step.lambdaTimeout, step.lambdaAWSRegion, handler);
+                await SGUtils.CreateAWSLambda(task._teamId, task._jobId, step.lambdaRole, task.id, lambdaCode, step.lambdaRuntime, step.lambdaMemorySize, step.lambdaTimeout, step.lambdaAWSRegion, handler);
 
                 if (zipFilePath) {
                     try { if (fs.existsSync(zipFilePath)) fs.unlinkSync(zipFilePath); } catch (e) { }
@@ -1046,12 +1075,10 @@ export default class Agent {
                 let runLambdaResult: any;
                 SGUtils.RunAWSLambda(task.id, step.lambdaAWSRegion, payload, (err, data) => {
                     if (err) {
-                        console.log('RunAWSLambda -> err -> ', err);
                         runLambdaError = err;
                         runParams.runLambdaFinished = true;
                     }
                     if (data) {
-                        console.log('RunAWSLambda -> data -> ', data);
                         runLambdaResult = data;
                     }
                 });
@@ -1114,6 +1141,7 @@ export default class Agent {
                 Object.assign(runtimeVars, parseStdoutResult.runtimeVars)
 
                 let outParams: any = {};
+                let code;
                 if (error == '') {
                     code = 0;
                     outParams[SGStrings.status] = Enums.StepStatus.SUCCEEDED;
@@ -1135,6 +1163,9 @@ export default class Agent {
 
                 await SGUtils.DeleteAWSLambda(task.id, step.lambdaAWSRegion);
                 await SGUtils.DeleteCloudWatchLogsEvents(task.id);
+                if (lambdaFileLoadedToSGAWS) {
+                    await SGUtils.RunCommand(`aws s3 rm s3://${lambdaCode.S3Bucket}/${lambdaCode.S3Key}`, {})
+                }
                 resolve(outParams);
             } catch (e) {
                 this.LogError('Error in RunStepAsync_Lambda: ' + e.message, e.stack, {});

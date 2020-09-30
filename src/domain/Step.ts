@@ -35,6 +35,8 @@ export class StepSchema {
 
   lambdaZipfile?: string;
   
+  lambdaFunctionHandler?: string;
+
   lambdaRole?: string;
 
   s3Bucket?: string;
