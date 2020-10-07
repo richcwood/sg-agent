@@ -288,8 +288,10 @@ export default class Agent {
 
         for (let i = 0; i < Object.keys(runningProcesses).length; i++) {
             const proc = runningProcesses[Object.keys(runningProcesses)[i]];
-            proc.kill();
-            // delete runningProcesses[Object.keys(runningProcesses)[i]];
+            if (proc && typeof (proc) == 'object' && proc.pid) {
+                proc.kill();
+                // delete runningProcesses[Object.keys(runningProcesses)[i]];
+            }
         }
 
         const maxSleepCount: number = 10;
@@ -619,7 +621,7 @@ export default class Agent {
                     for (let i = 0; i < ret.tasksToCancel.length; i++) {
                         const taskToCancel = ret.tasksToCancel[i];
                         const procToCancel = runningProcesses[taskToCancel];
-                        if (procToCancel) {
+                        if (procToCancel && typeof (procToCancel) == 'object' && procToCancel.pid) {
                             procToCancel.kill();
                         }
                     }
@@ -661,6 +663,7 @@ export default class Agent {
                                 name: `Inactive agent job - ${this.machineId}`,
                                 dateCreated: new Date().toISOString(),
                                 runtimeVars: { _agentId: this.InstanceId() },
+                                createdBy: this.machineId,
                                 tasks: [
                                     {
                                         name: 'InactiveTask',
@@ -930,9 +933,41 @@ export default class Agent {
                     }
                 }
 
+                for (let i = 0; i < data.length; i++) {
+                    const msg = data[i].message;
+                    if (msg.startsWith('REPORT ')) {
+                        const elems: string[] = msg.split('\t');
+                        for (let j = 0; j < elems.length; j++) {
+                            const elem: string = elems[j];
+                            if (elem.startsWith('Duration: ')) {
+                                try {
+                                    params.sgcDuration = elem.split(':').slice(1,3).join(' ').trim();
+                                } catch (err) {}
+        
+                            } else if (elem.startsWith('Billed Duration: ')) {
+                                try {
+                                    params.sgcBilledDuration = elem.split(':').slice(1,3).join(' ').trim();
+                                } catch (err) {}        
+                            } else if (elem.startsWith('Memory Size: ')) {
+                                try {
+                                    params.sgcMemSize = elem.split(':').slice(1,3).join(' ').trim();
+                                } catch (err) {}        
+                            } else if (elem.startsWith('Max Memory Used: ')) {
+                                try {
+                                    params.sgcMaxMemUsed = elem.split(':').slice(1,3).join(' ').trim();
+                                } catch (err) {}        
+                            } else if (elem.startsWith('Init Duration: ')) {
+                                try {
+                                    params.sgcInitDuration = elem.split(':').slice(1,3).join(' ').trim();
+                                } catch (err) { }
+                            }
+                        }
+                    }
+                }
+
                 if (Object.keys(rtvUpdates).length > 0) {
                     // console.log(`****************** taskOutcomeId -> ${params.taskOutcomeId}, runtimeVars -> ${JSON.stringify(rtvUpdates)}`);
-                    await params.appInst.RestAPICall(`taskOutcome/${params.taskOutcomeId}`, 'PUT', null, { _teamId: params._teamId, runtimeVars: rtvUpdates });
+                    params.appInst.queueCompleteMessages.push({ url: `taskOutcome/${params.taskOutcomeId}`, method: 'PUT', headers: null, data: { _teamId: params._teamId, runtimeVars: rtvUpdates } });
                 }
 
                 params.lastXLines = params.lastXLines.concat(dataStrings).slice(-params.appInst.numLinesInTail);
@@ -1002,7 +1037,12 @@ export default class Agent {
                 let stdoutTruncated: boolean = false;
                 let _teamId: string = step._teamId;
                 let runLambdaFinished: boolean = false;
-                let runParams: any = { queueTail, procFinished, taskOutcomeId, appInst, rtvCumulative, lastXLines, stdoutTruncated, stdoutBytesProcessed, updateId, stepOutcomeId, stdoutAnalysisFinished, _teamId, runLambdaFinished };
+                let sgcDuration: string = undefined;
+                let sgcBilledDuration: string = undefined;
+                let sgcMemSize: string = undefined;
+                let sgcMaxMemUsed: string = undefined;
+                let sgcInitDuration: string = undefined;
+                let runParams: any = { queueTail, procFinished, taskOutcomeId, appInst, rtvCumulative, lastXLines, stdoutTruncated, stdoutBytesProcessed, updateId, stepOutcomeId, stdoutAnalysisFinished, _teamId, runLambdaFinished, sgcDuration, sgcBilledDuration, sgcMemSize, sgcMaxMemUsed, sgcInitDuration };
 
                 const stdoutFileName = workingDirectory + path.sep + SGUtils.makeid(10) + '.out';
                 const out = fs.openSync(stdoutFileName, 'w');
@@ -1011,6 +1051,12 @@ export default class Agent {
                 let zipFilePath: string = '';
                 let handler: string = '';
                 if (!(step.lambdaZipfile)) {
+                    let msg: string = `${new Date().toISOString()} Creating saas glue compute function\n`;
+                    runParams.lastXLines.push(msg);
+                    const updates: any = { _teamId: runParams._teamId, tail: runParams.lastXLines, stdout: msg, status: Enums.StepStatus.RUNNING, lastUpdateId: runParams.updateId };
+                    await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, 'PUT', null, updates);
+                    runParams.updateId += 1;
+
                     if (step.lambdaRuntime.startsWith('node')) {
                         zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_NodeJS(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
                         const zipContents = fs.readFileSync(zipFilePath);
@@ -1067,6 +1113,12 @@ export default class Agent {
                     try { if (fs.existsSync(zipFilePath)) fs.unlinkSync(zipFilePath); } catch (e) { }
                 }
 
+                let msg: string = `${new Date().toISOString()} Running saas glue compute function\n`;
+                runParams.lastXLines.push(msg);
+                const updates: any = { _teamId: runParams._teamId, tail: runParams.lastXLines, stdout: msg, status: Enums.StepStatus.RUNNING, lastUpdateId: runParams.updateId };
+                await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, 'PUT', null, updates);
+                runParams.updateId += 1;
+
                 let payload = {};
                 if (step.variables)
                     payload = Object.assign(payload, step.variables);
@@ -1089,7 +1141,7 @@ export default class Agent {
                     for (let i = 0; i < msgs.length; i++) {
                         if (msgs[i].message.startsWith('START')) {
                             const requestId = msgs[i].message.split(' ')[2]
-                            runningProcesses[runParams.taskOutcomeId] = requestId;
+                            runningProcesses[runParams.taskOutcomeId] = `lambda ${requestId}`;
                         } else {
                             let msg = msgs[i].message.split('\t');
                             if (msg.length > 2) {
@@ -1140,7 +1192,7 @@ export default class Agent {
                 let runtimeVars: any = {};
                 Object.assign(runtimeVars, parseStdoutResult.runtimeVars)
 
-                let outParams: any = {};
+                let outParams: any = { sgcDuration: runParams.sgcDuration, sgcBilledDuration: runParams.sgcBilledDuration, sgcMemSize: runParams.sgcMemSize, sgcMaxMemUsed: runParams.sgcMaxMemUsed, sgcInitDuration: runParams.sgcInitDuration };
                 let code;
                 if (error == '') {
                     code = 0;
@@ -1744,7 +1796,7 @@ export default class Agent {
             if (params.interruptTask) {
                 await this.LogDebug('Interrupt task message received', { 'MsgKey': msgKey, 'Params': params });
                 const procToInterrupt = runningProcesses[params.interruptTask.id];
-                if (procToInterrupt) {
+                if (procToInterrupt && typeof(procToInterrupt) == 'object' && procToInterrupt.pid) {
                     // console.log('Interrupting task');
                     // procToInterrupt.stdin.pause();
                     // console.log('stdin paused');

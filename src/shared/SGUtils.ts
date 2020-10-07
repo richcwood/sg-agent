@@ -260,9 +260,11 @@ export class SGUtils {
 
             while (true) {
                 let res: any = await new Promise((resolve, reject) => {
-                    cwl.getLogEvents(getLogEventsParams, function (err, data) {
+                    cwl.getLogEvents(getLogEventsParams, async function (err, data) {
                         if (err) {
                             logger.LogError('Error in GetCloudWatchLogsEvents.getLogEvents: ' + err.message, err.stack, {});
+                            if (err.message == 'Rate exceeded')
+                                await SGUtils.sleep(5000);
                             return resolve();
                         }
                         if (data.events)
@@ -285,7 +287,10 @@ export class SGUtils {
                         break;
                 }
 
-                getLogEventsParams.nextToken = res.nextToken;
+                if (res && res.nextToken)
+                    getLogEventsParams.nextToken = res.nextToken;
+
+                await SGUtils.sleep(1000);
             }
 
             resolve('done');

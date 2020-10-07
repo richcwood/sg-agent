@@ -48,4 +48,14 @@ export class StepOutcomeSchema {
     lastUpdateId?: number;
 
     archived?: boolean;
+
+    sgcDuration?: string;
+
+    sgcBilledDuration?: string;
+
+    sgcMemSize?: string;
+
+    sgcMaxMemUsed?: string;
+
+    sgcInitDuration?: string;
 };
