@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.15';
+const version = 'v0.0.0.17';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -660,10 +660,10 @@ export default class Agent {
                         let script: any = await this.RestAPICall(`script/${this.inactiveAgentTask.script._id}`, 'GET', null, null);
                         let data = {
                             job: {
-                                name: `Inactive agent job - ${this.machineId}`,
+                                name: `Inactive agent job - ${this.MachineId()}`,
                                 dateCreated: new Date().toISOString(),
                                 runtimeVars: { _agentId: this.InstanceId() },
-                                createdBy: this.machineId,
+                                createdBy: this.MachineId(),
                                 tasks: [
                                     {
                                         name: 'InactiveTask',
