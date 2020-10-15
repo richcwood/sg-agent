@@ -61,6 +61,7 @@ export default class Agent {
     private ipAddress: string = '';
     private timezone: string = '';
     private stopped: boolean = false;
+    private stopping: boolean = false;
     private updating: boolean = false;
     private numActiveTasks: number = 0;
     private maxActiveTasks: number = 10;
@@ -1754,7 +1755,12 @@ export default class Agent {
             await cb(true, msgKey);
             // await this.LogDebug('Update received', { 'MsgKey': msgKey, 'Params': params });
             if (this.updating) {
-                await this.LogWarning('Version update running - skipping this update', {});
+                await this.LogDebug('Version update running - skipping this update', {});
+                return;
+            }
+
+            if (this.stopping) {
+                await this.LogDebug('Agent stopping - skipping this update', {});
                 return;
             }
 
@@ -1763,12 +1769,12 @@ export default class Agent {
                     return;
                 }
 
-                await this.LogDebug('Update Agent version message received', { 'MsgKey': msgKey, 'Params': params });
                 this.updating = true;
+                await this.LogDebug('Update Agent version message received', { 'MsgKey': msgKey, 'Params': params });
                 await SGUtils.sleep(2000);
                 await this.StopConsuming();
                 if (this.numActiveTasks > 0)
-                    await this.LogWarning('Updating Agent - waiting for current tasks to complete', {});
+                    await this.LogDebug('Updating Agent - waiting for current tasks to complete', {});
                 while (this.numActiveTasks > 0) {
                     await SGUtils.sleep(5000);
                 }
@@ -1810,6 +1816,21 @@ export default class Agent {
                     }
                     await this.RestAPICall(`taskOutcome/${params.interruptTask.id}`, 'PUT', null, taskOutcomeUpdate);
                 }
+            }
+
+            if (params.stopAgent) {
+                this.stopping = true;
+                await this.LogDebug('Stop Agent message received', { 'MsgKey': msgKey, 'Params': params });
+                await SGUtils.sleep(2000);
+                await this.StopConsuming();
+                if (this.numActiveTasks > 0)
+                    await this.LogDebug('Stopping Agent - waiting for current tasks to complete', {});
+                while (this.numActiveTasks > 0) {
+                    await SGUtils.sleep(5000);
+                }
+                await this.LogWarning('Agent processes stopped', {});
+                this.offline = true;
+                await this.SendDisconnectMessage();
             }
 
             // await cb(true, msgKey);
