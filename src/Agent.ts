@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.19';
+const version = 'v0.0.0.20';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -1308,9 +1308,10 @@ export default class Agent {
                     this.LogError('Error tailing stdout file: ' + error.message, error.stack, {});
                 });
 
-                let env = Object.assign({}, process.env);
+                let env: any = Object.assign({}, process.env);
                 if (step.variables)
                     env = Object.assign(env, step.variables);
+                env.sgAgentId = this.InstanceId();
 
                 let cmd = spawn(commandString, [], { stdio: ['ignore', out, err], shell: true, detached: false, env: env, cwd: workingDirectory });
     
