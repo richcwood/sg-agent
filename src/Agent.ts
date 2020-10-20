@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.21';
+const version = 'v0.0.0.22';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -690,9 +690,14 @@ export default class Agent {
                         //     }
                         // }
 
+                        let runtimeVars: any = {};
+                        if (this.inactiveAgentJob.runtimeVars)
+                            Object.assign(runtimeVars, this.inactiveAgentJob.runtimeVars);
+                        runtimeVars._agentId = this.InstanceId();
+
                         let data = {
                             name: `Inactive agent job - ${this.MachineId()}`,
-                            runtimeVars: { _agentId: this.InstanceId() },
+                            runtimeVars,
                             createdBy: this.MachineId()
                         };
 
