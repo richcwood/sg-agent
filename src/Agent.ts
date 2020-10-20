@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.20';
+const version = 'v0.0.0.21';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -74,7 +74,7 @@ export default class Agent {
     private userConfig: any = {};
     private timeLastActive: number = Date.now();
     private inactivePeriodWaitTime: number = 0;
-    private inactiveAgentTask: any;
+    private inactiveAgentJob: any;
     private ipcPath: string;
     private handleGeneralTasks: boolean = true;
     private maxStdoutSize: number = 307200; // bytes
@@ -88,7 +88,7 @@ export default class Agent {
     public _teamId: string;
 
 
-    private userConfigurableProperties: string[] = ['maxActiveTasks', 'inactivePeriodWaitTime', 'inactiveAgentTask', 'handleGeneralTasks', 'trackSysInfo'];
+    private userConfigurableProperties: string[] = ['maxActiveTasks', 'inactivePeriodWaitTime', 'inactiveAgentJob', 'handleGeneralTasks', 'trackSysInfo'];
 
     InstanceId() { return this.instanceId; }
 
@@ -126,8 +126,8 @@ export default class Agent {
         if ('inactivePeriodWaitTime' in params)
             this.inactivePeriodWaitTime = params.inactivePeriodWaitTime;
 
-        if ('inactiveAgentTask' in params)
-            this.inactiveAgentTask = params.inactiveAgentTask;
+        if ('inactiveAgentJob' in params)
+            this.inactiveAgentJob = params.inactiveAgentJob;
 
         if ('handleGeneralTasks' in params)
             this.handleGeneralTasks = params.handleGeneralTasks;
@@ -192,7 +192,7 @@ export default class Agent {
             agentProperties = await this.RestAPICall(`agent/name/${this.MachineId()}`, 'GET', { _teamId: this._teamId }, null);
         } catch (err) {
             if (err.response.status == 404) {
-                this.logger.LogWarning(`Error getting agent properties: ${err.message}`, {});
+                this.logger.LogDebug(`Error getting agent properties: ${err.message}`, {});
                 agentProperties = await this.CreateAgentInAPI();
             } else {
                 this.logger.LogError(`Error getting agent properties: ${err.message}`, err.stack, {});
@@ -609,7 +609,7 @@ export default class Agent {
             let cron: any;
             if ((process.platform.indexOf('darwin') >= 0) || (process.platform.indexOf('linux') >= 0)) {
                 cron = await this.GetCronTab();
-                if (cron.stdout) {
+                if (cron && cron.stdout) {
                     heartbeat_info.cron = cron.stdout;
                 }
             }
@@ -653,46 +653,52 @@ export default class Agent {
             } else if (Date.now() - this.timeLastActive > this.inactivePeriodWaitTime) {
                 this.timeLastActive = Date.now();
 
-                if (this.inactiveAgentTask) {
+                if (this.inactiveAgentJob) {
                     this.numActiveTasks += 1;
                     try {
-                        this.LogDebug('Running inactive agent task', { 'inactiveAgentTask': util.inspect(this.inactiveAgentTask, false, null) });
+                        this.LogDebug('Running inactive agent job', { 'inactiveAgentJob': this.inactiveAgentJob });
 
-                        let script: any = await this.RestAPICall(`script/${this.inactiveAgentTask.script._id}`, 'GET', null, null);
+                        // let script: any = await this.RestAPICall(`script/${this.inactiveAgentTask.script._id}`, 'GET', null, null);
+                        // let data = {
+                        //     job: {
+                        //         name: `Inactive agent job - ${this.MachineId()}`,
+                        //         dateCreated: new Date().toISOString(),
+                        //         runtimeVars: { _agentId: this.InstanceId() },
+                        //         createdBy: this.MachineId(),
+                        //         tasks: [
+                        //             {
+                        //                 name: 'InactiveTask',
+                        //                 source: TaskSource.JOB,
+                        //                 targetAgentId: this.instanceId,
+                        //                 requiredTags: [],
+                        //                 target: TaskDefTarget.SINGLE_SPECIFIC_AGENT,
+                        //                 fromRoutes: [],
+                        //                 steps: [
+                        //                     {
+                        //                         name: 'Step1',
+                        //                         'script': {
+                        //                             scriptType: Enums.ScriptType[script.scriptType],
+                        //                             code: script.code
+                        //                         },
+                        //                         order: 0,
+                        //                         arguments: this.inactiveAgentTask.arguments,
+                        //                         variables: this.inactiveAgentTask.variables
+                        //                     }
+                        //                 ]
+                        //             }
+                        //         ]
+                        //     }
+                        // }
+
                         let data = {
-                            job: {
-                                name: `Inactive agent job - ${this.MachineId()}`,
-                                dateCreated: new Date().toISOString(),
-                                runtimeVars: { _agentId: this.InstanceId() },
-                                createdBy: this.MachineId(),
-                                tasks: [
-                                    {
-                                        name: 'InactiveTask',
-                                        source: TaskSource.JOB,
-                                        targetAgentId: this.instanceId,
-                                        requiredTags: [],
-                                        target: TaskDefTarget.SINGLE_SPECIFIC_AGENT,
-                                        fromRoutes: [],
-                                        steps: [
-                                            {
-                                                name: 'Step1',
-                                                'script': {
-                                                    scriptType: Enums.ScriptType[script.scriptType],
-                                                    code: script.code
-                                                },
-                                                order: 0,
-                                                arguments: this.inactiveAgentTask.arguments,
-                                                variables: this.inactiveAgentTask.variables
-                                            }
-                                        ]
-                                    }
-                                ]
-                            }
-                        }
+                            name: `Inactive agent job - ${this.MachineId()}`,
+                            runtimeVars: { _agentId: this.InstanceId() },
+                            createdBy: this.MachineId()
+                        };
 
-                        await this.RestAPICall(`job`, 'POST', null, data);
+                        await this.RestAPICall(`job`, 'POST', { _jobDefId: this.inactiveAgentJob }, data);
                     } catch (e) {
-                        this.LogError('Error running inactive agent task: ' + e.message, e.stack, {});
+                        this.LogError('Error running inactive agent job: ' + e.message, e.stack, {});
                     } finally {
                         this.numActiveTasks -= 1;
                     }
