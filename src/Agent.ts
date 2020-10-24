@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.23';
+const version = 'v0.0.0.24';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -653,8 +653,8 @@ export default class Agent {
             } else if (Date.now() - this.timeLastActive > this.inactivePeriodWaitTime) {
                 this.timeLastActive = Date.now();
 
-                if (this.inactiveAgentJob) {
-                    this.numActiveTasks += 1;
+                if (this.inactiveAgentJob && this.inactiveAgentJob.id) {
+                    // this.numActiveTasks += 1;
                     try {
                         this.LogDebug('Running inactive agent job', { 'inactiveAgentJob': this.inactiveAgentJob });
 
@@ -1019,8 +1019,8 @@ export default class Agent {
                     // console.log('================== -> ', new Date().toISOString(), ', lastUpdateTime -> ', new Date(lastUpdateTime).toISOString(), ', sendUpdatesInterval -> ', appInst.sendUpdatesInterval);
                     // console.log('sending step update -> ', new Date().toISOString(), ', lines -> ', tmpXLines, ', updateId -> ', updateId, ' -> ', new Date().toISOString());
                     const updates: any = { _teamId: params._teamId, tail: params.lastXLines, stdout: stdoutToUpload, status: Enums.StepStatus.RUNNING, lastUpdateId: params.updateId };
-                    await params.appInst.RestAPICall(`stepOutcome/${params.stepOutcomeId}`, 'PUT', null, updates);
                     params.updateId += 1;
+                    await params.appInst.RestAPICall(`stepOutcome/${params.stepOutcomeId}`, 'PUT', null, updates);
 
                     if (params.stdoutTruncated)
                         break;
@@ -1483,8 +1483,8 @@ export default class Agent {
                             // console.log('================== -> ', new Date().toISOString(), ', lastUpdateTime -> ', new Date(lastUpdateTime).toISOString(), ', sendUpdatesInterval -> ', appInst.sendUpdatesInterval);
                             // console.log('sending step update -> ', new Date().toISOString(), ', lines -> ', tmpXLines, ', updateId -> ', updateId, ' -> ', new Date().toISOString());
                             const updates: any = { tail: lastXLines, stdout: stdoutToUpload, status: Enums.StepStatus.RUNNING, lastUpdateId: updateId };
-                            await appInst.RestAPICall(`stepOutcome/${stepOutcomeId}`, 'PUT', null, updates);
                             updateId += 1;
+                            await appInst.RestAPICall(`stepOutcome/${stepOutcomeId}`, 'PUT', null, updates);
 
                             if (stdoutTruncated)
                                 break;
