@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.24';
+const version = 'v0.0.0.25';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -654,7 +654,6 @@ export default class Agent {
                 this.timeLastActive = Date.now();
 
                 if (this.inactiveAgentJob && this.inactiveAgentJob.id) {
-                    // this.numActiveTasks += 1;
                     try {
                         this.LogDebug('Running inactive agent job', { 'inactiveAgentJob': this.inactiveAgentJob });
 
@@ -704,8 +703,6 @@ export default class Agent {
                         await this.RestAPICall(`job`, 'POST', { _jobDefId: this.inactiveAgentJob.id }, data);
                     } catch (e) {
                         this.LogError('Error running inactive agent job: ' + e.message, e.stack, {});
-                    } finally {
-                        this.numActiveTasks -= 1;
                     }
                 }
             }
