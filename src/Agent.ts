@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.25';
+const version = 'v0.0.0.26';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -255,7 +255,8 @@ export default class Agent {
             try {
                 await this.ConnectIPC();
                 ipc.of.SGAgentLauncherProc.on('disconnect', async () => {
-                    this.LogError(`Disconnected from agent updater - attempting to reconnect`, '', {});
+                    this.LogError(`Disconnected from agent updater - attempting to reconnect in 10 seconds`, '', {});
+                    await SGUtils.sleep(10000);
                     setTimeout(async () => {
                         try {
                             await this.ConnectIPC();
@@ -542,7 +543,6 @@ export default class Agent {
                     });
                     ipc.of.SGAgentLauncherProc.on('error', async () => {
                         this.LogError(`Error connecting to agent launcher - retrying`, '', {});
-                        await SGUtils.sleep(5000);
                     });
                     ipc.of.SGAgentLauncherProc.on('destroy', async () => {
                         this.LogError(`Failed to connect to agent launcher`, '', {});
@@ -1837,7 +1837,11 @@ export default class Agent {
                 while (this.numActiveTasks > 0) {
                     await SGUtils.sleep(5000);
                 }
-                await this.LogWarning('Agent processes stopped', {});
+                for (let i = 0; i < 6; i++) {
+                    if (!this.queueCompleteMessages || this.queueCompleteMessages.length <= 0)
+                        break;
+                    await SGUtils.sleep(5000);
+                }
                 this.offline = true;
                 await this.SendDisconnectMessage();
             }
