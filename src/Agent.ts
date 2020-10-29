@@ -715,14 +715,14 @@ export default class Agent {
     }
 
     async SendCompleteMessages() {
-        this.LogDebug('Checking message queue', {});
+        // this.LogDebug('Checking message queue', {});
         while (this.queueCompleteMessages.length > 0) {
             const msg: any = this.queueCompleteMessages[0];
             try {
-                this.LogDebug('Sending queued message', { 'request': msg });
+                // this.LogDebug('Sending queued message', { 'request': msg });
                 await this.RestAPICall(msg.url, msg.method, msg.headers, msg.data);
                 this.queueCompleteMessages.shift();
-                this.LogDebug('Sent queued message', { 'request': msg });
+                // this.LogDebug('Sent queued message', { 'request': msg });
             } catch (e) {
                 if (!this.stopped) {
                     if (e.response && e.response.data && e.response.data.statusCode) {
