@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.26';
+const version = 'v0.0.0.27';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -723,10 +723,10 @@ export default class Agent {
             } catch (e) {
                 if (!this.stopped) {
                     if (e.response && e.response.data && e.response.data.statusCode) {
-                        this.LogError(`Error sending complete message: ${e.message}`, e.stack, { msg, response: e.response.data });
+                        this.LogError(`Error sending complete message: ${e.message}`, e.stack, { request: msg, response: e.response.data });
                         this.queueCompleteMessages.shift();
                     } else {
-                        this.LogError(`Error sending complete message: ${e.message}`, e.stack, { msg });
+                        this.LogError(`Error sending complete message: ${e.message}`, e.stack, { request: msg });
                         await SGUtils.sleep(10000);
                     }
                 } else {
