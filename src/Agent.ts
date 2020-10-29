@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.27';
+const version = 'v0.0.0.28';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -715,11 +715,14 @@ export default class Agent {
     }
 
     async SendCompleteMessages() {
+        this.LogDebug('Checking message queue', {});
         while (this.queueCompleteMessages.length > 0) {
             const msg: any = this.queueCompleteMessages[0];
             try {
+                this.LogDebug('Sending queued message', { 'request': msg });
                 await this.RestAPICall(msg.url, msg.method, msg.headers, msg.data);
                 this.queueCompleteMessages.shift();
+                this.LogDebug('Sent queued message', { 'request': msg });
             } catch (e) {
                 if (!this.stopped) {
                     if (e.response && e.response.data && e.response.data.statusCode) {
