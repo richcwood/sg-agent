@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.30';
+const version = 'v0.0.0.31';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -81,7 +81,7 @@ export default class Agent {
     private maxStderrSize: number = 51200; // bytes
     private numLinesInTail: number = 5;
     private maxSizeLineInTail: number = 1024; //bytes
-    private sendUpdatesInterval: number = 1000;
+    private sendUpdatesInterval: number = 10000;
     private queueCompleteMessages: any[] = [];
     private offline: boolean = false;
     private mainProcessInterrupted: boolean = false;
@@ -927,7 +927,11 @@ export default class Agent {
                 if (!(params.taskOutcomeId in runningProcesses)) {
                     break;
                 }
-                await SGUtils.sleep(params.appInst.sendUpdatesInterval);
+                for (let i = 0; i < params.appInst.sendUpdatesInterval / 10; i++) {
+                    await SGUtils.sleep(params.appInst.sendUpdatesInterval / 10);
+                    if (params.procFinished)
+                        break;
+                }
                 continue;
             }
 
@@ -1404,7 +1408,7 @@ export default class Agent {
                         outParams['tail'] = lastXLines;
                         outParams['stderr'] = parseStderrResult.output;
                         outParams['exitCode'] = code;
-                        outParams['lastUpdateId'] = updateId + 1;
+                        outParams['lastUpdateId'] = updateId;
 
                         resolve(outParams);
                     } catch (e) {
@@ -1422,7 +1426,11 @@ export default class Agent {
                         if (!(taskOutcomeId in runningProcesses)) {
                             break;
                         }
-                        await SGUtils.sleep(appInst.sendUpdatesInterval);
+                        for (let i = 0; i < appInst.sendUpdatesInterval / 10; i++) {
+                            await SGUtils.sleep(appInst.sendUpdatesInterval / 10);
+                            if (procFinished)
+                                break;
+                        }
                         continue;
                     }
 
