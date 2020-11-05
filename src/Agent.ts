@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.31';
+const version = 'v0.0.0.32';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -717,19 +717,20 @@ export default class Agent {
     async SendCompleteMessages() {
         // this.LogDebug('Checking message queue', {});
         while (this.queueCompleteMessages.length > 0) {
-            const msg: any = this.queueCompleteMessages[0];
+            const msg: any = this.queueCompleteMessages.shift();
             try {
                 // this.LogDebug('Sending queued message', { 'request': msg });
                 await this.RestAPICall(msg.url, msg.method, msg.headers, msg.data);
-                this.queueCompleteMessages.shift();
+                // this.queueCompleteMessages.shift();
                 // this.LogDebug('Sent queued message', { 'request': msg });
             } catch (e) {
                 if (!this.stopped) {
                     if (e.response && e.response.data && e.response.data.statusCode) {
                         this.LogError(`Error sending complete message: ${e.message}`, e.stack, { request: msg, response: e.response.data });
-                        this.queueCompleteMessages.shift();
+                        // this.queueCompleteMessages.shift();
                     } else {
                         this.LogError(`Error sending complete message: ${e.message}`, e.stack, { request: msg });
+                        this.queueCompleteMessages.unshift(msg);
                         await SGUtils.sleep(10000);
                     }
                 } else {
@@ -1512,6 +1513,7 @@ export default class Agent {
     }
 
     RunTask = async (task: TaskSchema) => {
+        // this.LogDebug('Running task', { 'id': task.id });
         // console.log('Agent -> RunTask -> task -> ', util.inspect(task, false, null));
         let dateStarted = new Date().toISOString();
 
