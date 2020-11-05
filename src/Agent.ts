@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.32';
+const version = 'v0.0.0.33';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -256,10 +256,15 @@ export default class Agent {
                 await this.ConnectIPC();
                 ipc.of.SGAgentLauncherProc.on('disconnect', async () => {
                     this.LogError(`Disconnected from agent updater - attempting to reconnect in 10 seconds`, '', {});
-                    await SGUtils.sleep(10000);
+                    for (let i = 0; i < 10; i++) {
+                        if (this.stopped)
+                            break;
+                        await SGUtils.sleep(1000);
+                    }
                     setTimeout(async () => {
                         try {
-                            await this.ConnectIPC();
+                            if (!this.stopped)
+                                await this.ConnectIPC();
                         } catch (e) {
                             console.error('Error connecting to agent updater - restarting: ', e);
                             try { this.RunAgentStub() } catch (e) { }
