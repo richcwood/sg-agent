@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.33';
+const version = 'v0.0.0.34';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -285,7 +285,6 @@ export default class Agent {
 
 
     async SignalHandler(signal) {
-        // console.log('SignalHandler -> start -> runningProcesses -> ', runningProcesses);
         this.mainProcessInterrupted = true;
 
         await this.Stop();
@@ -379,7 +378,7 @@ export default class Agent {
                     _teamId: this._teamId
                 }, headers);
 
-                console.log('Agent RestAPICall -> url ', url, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.token);
+                // console.log('Agent RestAPICall -> url ', url, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.token);
 
                 const response = await axios({
                     url,
@@ -503,6 +502,7 @@ export default class Agent {
         this.logger.Stop();
         await this.StopConsuming();
         await this.stompConsumer.Stop();
+        ipc.disconnect('SGAgentLauncherProc');
     }
 
     async LogError(msg: string, stack: string, values: any) {
@@ -551,7 +551,7 @@ export default class Agent {
                     });
                     ipc.of.SGAgentLauncherProc.on('destroy', async () => {
                         this.LogError(`Failed to connect to agent launcher`, '', {});
-                        reject(new Error(`Failed to connect to agent launcher`));
+                        // reject(new Error(`Failed to connect to agent launcher`));
                     });
                 });
             } catch (e) {
@@ -1780,7 +1780,7 @@ export default class Agent {
     Update = async (params: any, msgKey: string, cb: any) => {
         try {
             await cb(true, msgKey);
-            // await this.LogDebug('Update received', { 'MsgKey': msgKey, 'Params': params });
+            await this.LogDebug('Update received', { 'MsgKey': msgKey, 'Params': params });
             if (this.updating) {
                 await this.LogDebug('Version update running - skipping this update', {});
                 return;
