@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.35';
+const version = 'v0.0.0.36';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -68,7 +68,7 @@ export default class Agent {
     private env: string;
     private logDest: string;
     private trackSysInfo: boolean = false;
-    private logLevel: LogLevel = LogLevel.DEBUG;
+    private logLevel: LogLevel = LogLevel.WARNING;
     private heartbeatInterval: number = 30000;
     private token: string;
     private userConfig: any = {};
@@ -101,7 +101,7 @@ export default class Agent {
         // console.log(process.env.NODE_ENV);
 
         if (params.hasOwnProperty('logLevel'))
-            this.logLevel = params['logLevel'];
+            this.logLevel = parseInt(params['logLevel']);
 
         this.logDest = 'file';
         if (params.hasOwnProperty('logDest'))
@@ -153,12 +153,12 @@ export default class Agent {
             }
         }
 
+        this.ipcPath = process.argv[2];
+
         this.logger = new AgentLogger(this.appName, this._teamId, this.logLevel, process.cwd() + '/logs', this.apiUrl, this.apiPort, this.agentLogsAPIVersion, params.token, this.env, this.logDest, this.machineId);
         this.logger.Start();
 
         this.logger.LogDebug(`Starting Agent`, { tags: this.tags, propertyOverrides: this.UpdatePropertyOverrides, userConfigPath, env: this.env });
-
-        this.ipcPath = process.argv[2];
     }
 
 
@@ -195,7 +195,7 @@ export default class Agent {
                 this.logger.LogDebug(`Error getting agent properties: ${err.message}`, {});
                 agentProperties = await this.CreateAgentInAPI();
             } else {
-                this.logger.LogError(`Error getting agent properties: ${err.message}`, err.stack, {});
+                this.logger.LogError(`Error getting agent properties: ${err.message}`, err.stack, err);
                 throw err;
             }
         }
@@ -255,7 +255,9 @@ export default class Agent {
             try {
                 await this.ConnectIPC();
                 ipc.of.SGAgentLauncherProc.on('disconnect', async () => {
-                    this.LogError(`Disconnected from agent updater - attempting to reconnect in 10 seconds`, '', {});
+                    if (this.stopped)
+                        return;
+                    this.LogError(`Disconnected from agent launcher - attempting to reconnect in 10 seconds`, '', {});
                     for (let i = 0; i < 10; i++) {
                         if (this.stopped)
                             break;
@@ -266,14 +268,14 @@ export default class Agent {
                             if (!this.stopped)
                                 await this.ConnectIPC();
                         } catch (e) {
-                            console.error('Error connecting to agent updater - restarting: ', e);
+                            this.LogError(`Error connecting to agent launcher - restarting`, '', e);
                             try { this.RunAgentStub() } catch (e) { }
                         }
                     }, 1000);
                 });
                 await this.SendMessageToAgentStub({ propertyOverrides: { 'instanceId': this.instanceId, 'apiUrl': this.apiUrl, 'apiPort': this.apiPort, 'agentLogsAPIVersion': this.agentLogsAPIVersion } });
             } catch (e) {
-                console.error('Error connecting to agent updater - restarting: ', e);
+                this.LogError(`Error connecting to agent launcher - restarting`, '', e);
                 try { this.RunAgentStub() } catch (e) { }
             }
         }
@@ -378,6 +380,7 @@ export default class Agent {
                     _teamId: this._teamId
                 }, headers);
 
+                this.logger.LogDebug(`RestAPICall`, {url, method, combinedHeaders, data, token: this.token});
                 // console.log('Agent RestAPICall -> url ', url, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.token);
 
                 const response = await axios({
@@ -389,6 +392,7 @@ export default class Agent {
                 });
                 resolve(response.data.data);
             } catch (e) {
+                this.logger.LogDebug(`RestAPICall error: ${e.message}`, {e});
                 e.message = `Error occurred calling ${method} on '${url}': ${e.message}`;
                 reject(e);
             }
@@ -540,17 +544,18 @@ export default class Agent {
                 ipc.config.retry = 1000;
                 ipc.config.silent = true;
                 ipc.config.maxRetries = 10;
-                this.LogInfo(`Connecting to agent launcher`, {});
+                this.LogDebug(`Connecting to agent launcher`, {});
                 ipc.connectTo('SGAgentLauncherProc', this.ipcPath, () => {
                     ipc.of.SGAgentLauncherProc.on('connect', async () => {
-                        this.LogInfo(`Connected to agent launcher`, {});
+                        this.LogDebug(`Connected to agent launcher`, {});
                         resolve();
                     });
                     ipc.of.SGAgentLauncherProc.on('error', async () => {
                         this.LogError(`Error connecting to agent launcher - retrying`, '', {});
                     });
                     ipc.of.SGAgentLauncherProc.on('destroy', async () => {
-                        this.LogError(`Failed to connect to agent launcher`, '', {});
+                        if (!this.stopped)
+                            this.LogError(`Failed to connect to agent launcher`, '', {});
                         // reject(new Error(`Failed to connect to agent launcher`));
                     });
                 });
@@ -564,7 +569,7 @@ export default class Agent {
         if (!this.runStandAlone) {
             return new Promise(async (resolve, reject) => {
                 try {
-                    this.LogInfo(`Sending message to agent launcher`, params);
+                    this.LogDebug(`Sending message to agent launcher`, params);
                     await ipc.of.SGAgentLauncherProc.emit(`sg-agent-msg-${this._teamId}`, params);
                     resolve();
                 } catch (e) {
@@ -661,38 +666,6 @@ export default class Agent {
                 if (this.inactiveAgentJob && this.inactiveAgentJob.id) {
                     try {
                         this.LogDebug('Running inactive agent job', { 'inactiveAgentJob': this.inactiveAgentJob });
-
-                        // let script: any = await this.RestAPICall(`script/${this.inactiveAgentTask.script._id}`, 'GET', null, null);
-                        // let data = {
-                        //     job: {
-                        //         name: `Inactive agent job - ${this.MachineId()}`,
-                        //         dateCreated: new Date().toISOString(),
-                        //         runtimeVars: { _agentId: this.InstanceId() },
-                        //         createdBy: this.MachineId(),
-                        //         tasks: [
-                        //             {
-                        //                 name: 'InactiveTask',
-                        //                 source: TaskSource.JOB,
-                        //                 targetAgentId: this.instanceId,
-                        //                 requiredTags: [],
-                        //                 target: TaskDefTarget.SINGLE_SPECIFIC_AGENT,
-                        //                 fromRoutes: [],
-                        //                 steps: [
-                        //                     {
-                        //                         name: 'Step1',
-                        //                         'script': {
-                        //                             scriptType: Enums.ScriptType[script.scriptType],
-                        //                             code: script.code
-                        //                         },
-                        //                         order: 0,
-                        //                         arguments: this.inactiveAgentTask.arguments,
-                        //                         variables: this.inactiveAgentTask.variables
-                        //                     }
-                        //                 ]
-                        //             }
-                        //         ]
-                        //     }
-                        // }
 
                         let runtimeVars: any = {};
                         if (this.inactiveAgentJob.runtimeVars)
@@ -1782,12 +1755,12 @@ export default class Agent {
             await cb(true, msgKey);
             await this.LogDebug('Update received', { 'MsgKey': msgKey, 'Params': params });
             if (this.updating) {
-                await this.LogDebug('Version update running - skipping this update', {});
+                await this.LogWarning('Version update running - skipping this update', {});
                 return;
             }
 
             if (this.stopping) {
-                await this.LogDebug('Agent stopping - skipping this update', {});
+                await this.LogWarning('Agent stopping - skipping this update', {});
                 return;
             }
 
@@ -1959,7 +1932,7 @@ export default class Agent {
             spawn(commandString, [], { stdio: 'pipe', shell: true });
             process.exit();
         } catch (e) {
-            console.error(`Error starting agent updater'${commandString}': ${e.message}`, e.stack);
+            console.error(`Error starting agent launcher'${commandString}': ${e.message}`, e.stack);
         }
     };
 

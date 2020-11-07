@@ -69,6 +69,16 @@ process.on('unhandledRejection', (reason, p) => {
         //     console.log(file);
         // });
 
+        for (let i = 0; i < process.argv.length; i++) {
+            if (process.argv[i] == '--LogDest') {
+                if (process.argv.length > i)
+                    params.logDest = process.argv[i+1];
+            } else if (process.argv[i] == '--LogLevel') {
+                if (process.argv.length > i)
+                    params.logLevel = process.argv[i+1];
+            }
+        }
+
         const AgentStub_1 = require('./AgentStub');
         let agentStubInstance = new AgentStub_1.default(params);
         await agentStubInstance.Start();

@@ -15,7 +15,7 @@ const waitForAgentCreateMaxRetries = 20;
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
 export default class AgentStub {
-    public logLevel: any = LogLevel.DEBUG;
+    public logLevel: any = LogLevel.WARNING;
     private logger: AgentLogger;
     private agentPath: string;
     private ipcPath: string;
@@ -29,6 +29,8 @@ export default class AgentStub {
         this.logDest = 'file';
         if (params.hasOwnProperty('logDest'))
             this.logDest = params['logDest'];
+        if (params.hasOwnProperty('logLevel'))
+            this.logLevel = parseInt(params['logLevel']);
 
         if (params.env == 'debug') {
             const userConfig: any = this.getUserConfigValues();
@@ -59,7 +61,7 @@ export default class AgentStub {
         ipc.config.silent = true;
         ipc.serve(this.ipcPath, () => ipc.server.on(`sg-agent-msg-${params._teamId}`, (message, socket) => {
             const logMsg = 'Message from Agent: ' + util.inspect(message, false, null);
-            this.logger.LogWarning(logMsg, {});
+            this.logger.LogDebug(logMsg, {});
             if (message.propertyOverrides) {
                 if (message.propertyOverrides.logLevel) {
                     this.logger.logLevel = message.propertyOverrides.logLevel;
@@ -120,6 +122,7 @@ export default class AgentStub {
                 }, headers);
 
                 // console.log('RestAPICall -> url ', url, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.params.token);
+                this.logger.LogDebug(`RestAPICall`, {url, method, combinedHeaders, data, token: this.params.token});
 
                 const response = await axios({
                     url,
@@ -133,9 +136,9 @@ export default class AgentStub {
                 let newError: any = { config: error.config };
                 if (error.response) {
                     newError = Object.assign(newError, { data: error.response.data, status: error.response.status, headers: error.response.headers });
-                    this.logger.LogError(error.message, '', newError);
+                    this.logger.LogError(`RestAPICall error: ${error.message}`, '', newError);
                 } else {
-                    this.logger.LogError(error.message, '', newError);
+                    this.logger.LogError(`RestAPICall error: ${error.message}`, '', newError);
                 }
                 reject(Object.assign(newError, { Error: error.message }));
             }
@@ -288,7 +291,7 @@ export default class AgentStub {
         try {
             let cmdString = this.agentPath;
             if (fs.existsSync(this.agentPath)) {
-                res = await this.RunCommand(cmdString, [this.ipcPath]);
+                res = await this.RunCommand(cmdString, [this.ipcPath, '--LogDest', this.logDest, '--LogLevel', this.logLevel]);
                 let logMsg: string;
                 if (res.code == 96) {
                     logMsg = 'Updating and restarting agent';
