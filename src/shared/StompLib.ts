@@ -84,7 +84,7 @@ export class StompConnector {
                     }
                 }
             } catch (e) {
-                this.LogError('Error connecting to RabbitMQ: ' + e.message, e.stack, {});
+                // this.LogError('Error connecting to RabbitMQ: ' + e.message, e.stack, {});
                 reject(e);
             }
         });

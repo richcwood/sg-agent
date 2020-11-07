@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.34';
+const version = 'v0.0.0.35';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -1937,7 +1937,7 @@ export default class Agent {
             await this.CheckStompConnection();
         } catch (e) {
             this.LogError('Error in ConnectStomp: ' + e.message, e.stack, {});
-            setTimeout(() => { this.ConnectStomp(); }, 30000);
+            // setTimeout(() => { this.ConnectStomp(); }, 30000);
         }
     }
 
