@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.36';
+const version = 'v0.0.0.37';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -85,6 +85,8 @@ export default class Agent {
     private queueCompleteMessages: any[] = [];
     private offline: boolean = false;
     private mainProcessInterrupted: boolean = false;
+    private lastStompConnectAttemptTime: number = 0;
+    private stompReconnectMinWaitTime: number = 10000;
     public _teamId: string;
 
 
@@ -1405,8 +1407,8 @@ export default class Agent {
                         if (!(taskOutcomeId in runningProcesses)) {
                             break;
                         }
-                        for (let i = 0; i < appInst.sendUpdatesInterval / 10; i++) {
-                            await SGUtils.sleep(appInst.sendUpdatesInterval / 10);
+                        for (let i = 0; i < appInst.sendUpdatesInterval / 1000; i++) {
+                            await SGUtils.sleep(1000);
                             if (procFinished)
                                 break;
                         }
@@ -1904,6 +1906,13 @@ export default class Agent {
 
     async ConnectStomp() {
         try {
+            const elapsed = Date.now() - this.lastStompConnectAttemptTime;
+            if (elapsed < this.stompReconnectMinWaitTime) {
+                const ttw = this.stompReconnectMinWaitTime - elapsed;
+                await SGUtils.sleep(ttw);
+            }
+            this.lastStompConnectAttemptTime = Date.now();
+            this.LogDebug('Connecting to stomp', {url: this.stompUrl, user: this.rmqUsername, password: this.rmqPassword, vhost: this.rmqVhost});
             this.stompConsumer = new StompConnector(this.appName, this.instanceId.toHexString(), this.stompUrl, this.rmqUsername, this.rmqPassword, this.rmqAdminUrl, this.rmqVhost, 1, () => this.OnRabbitMQDisconnect(), this.logger);
             await this.stompConsumer.Start();
             await this.ConnectAgentWorkQueuesStomp();

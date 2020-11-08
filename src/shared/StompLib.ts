@@ -181,7 +181,7 @@ export class StompConnector {
                 this.LogDebug('Consuming queue', { 'QueueName': queueName });
             } catch (e) {
                 this.LogError('Error consuming Stomp queue', e.stack, { 'QueueName': queueName });
-                reject(e);
+                // reject(e);
             }
             resolve(sub);
         });

@@ -44,6 +44,16 @@ process.on('unhandledRejection', (reason, p) => {
             runStandAlone: true
         }
 
+        for (let i = 0; i < process.argv.length; i++) {
+            if (process.argv[i] == '--LogDest') {
+                if (process.argv.length > i)
+                    params.logDest = process.argv[i+1];
+            } else if (process.argv[i] == '--LogLevel') {
+                if (process.argv.length > i)
+                    params.logLevel = process.argv[i+1];
+            }
+        }
+    
         const Agent_1 = require('./Agent');
         let agentInstance = new Agent_1.default(params);
         await agentInstance.Init();
