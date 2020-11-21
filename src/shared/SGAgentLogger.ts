@@ -269,18 +269,18 @@ export class AgentLogger {
                         resolve();
                     }).catch(error => {
                         success = false;
-                        this.LogError(`Error uploading log file 1 '${filePath}': ${error.message}`, error.stack, { error: error.Error, headers: error.headers, method: error.method, url: error.url });
+                        this.LogError(`Error uploading log file 1`, error.stack, { filePath, error: error.Error, headers: error.headers, method: error.method, url: error.url });
                         resolve();
                     });
                 } catch (e) {
                     success = false;
-                    this.LogError(`Error uploading log file 2 '${filePath}': ${e.message}`, e.stack, {});
+                    this.LogError(`Error uploading log file 2`, '', {filePath, error: e});
                     resolve();
                 }
             });
         } catch (e) {
             success = false;
-            this.LogError(`Error uploading log file 3 '${filePath}': ${e.message}`, e.stack, {});
+            this.LogError(`Error uploading log file 3`, '', {filePath, error: e});
         }
 
         if (!success)

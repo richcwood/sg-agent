@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.37';
+const version = 'v0.0.0.38';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -194,10 +194,10 @@ export default class Agent {
             agentProperties = await this.RestAPICall(`agent/name/${this.MachineId()}`, 'GET', { _teamId: this._teamId }, null);
         } catch (err) {
             if (err.response.status == 404) {
-                this.logger.LogDebug(`Error getting agent properties: ${err.message}`, {});
+                this.logger.LogDebug(`Error getting agent properties`, { error: err.toString()});
                 agentProperties = await this.CreateAgentInAPI();
             } else {
-                this.logger.LogError(`Error getting agent properties: ${err.message}`, err.stack, err);
+                this.logger.LogError(`Error getting agent properties`, err.stack, { error: err.toString() });
                 throw err;
             }
         }
@@ -358,7 +358,7 @@ export default class Agent {
                 }
                 resolve(artifactSize);
             } catch (e) {
-                this.logger.LogError(`Error downloading artifact ${artifactId}: ${e.message}`, e.stack, {});
+                this.logger.LogError(`Error downloading artifact`, e.stack, {  artifactId, error: e.toString() });
                 reject(e);
             }
         });
@@ -382,7 +382,7 @@ export default class Agent {
                     _teamId: this._teamId
                 }, headers);
 
-                this.logger.LogDebug(`RestAPICall`, {url, method, combinedHeaders, data, token: this.token});
+                // this.logger.LogDebug(`RestAPICall`, {url, method, combinedHeaders, data, token: this.token});
                 // console.log('Agent RestAPICall -> url ', url, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.token);
 
                 const response = await axios({
@@ -394,7 +394,7 @@ export default class Agent {
                 });
                 resolve(response.data.data);
             } catch (e) {
-                this.logger.LogDebug(`RestAPICall error: ${e.message}`, {e});
+                this.logger.LogDebug(`RestAPICall error`, { error: e.toString() });
                 e.message = `Error occurred calling ${method} on '${url}': ${e.message}`;
                 reject(e);
             }
@@ -587,7 +587,7 @@ export default class Agent {
 
             await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, 'PUT', null, heartbeat_info);
         } catch (e) {
-            this.LogError(`Error sending disconnect message - ${e.message}`, '', {});
+            this.LogError(`Error sending disconnect message`, e.stack, { error: e.toString() });
         }
     }
 
@@ -599,7 +599,7 @@ export default class Agent {
         } catch(err) {
             retryCount += 1;
             if (retryCount > 10) {
-                this.LogWarning(`Error removing folder ${path} - ${err.message}`, {});
+                this.LogWarning(`Error removing folder`, { path, error: err.toString() });
             } else {
                 setTimeout(() => { this.RemoveFolder(path, retryCount); }, 1000);
             }
@@ -651,7 +651,7 @@ export default class Agent {
                 setTimeout(() => { this.SendHeartbeat(); }, this.heartbeatInterval);
         } catch (e) {
             if (!this.stopped) {
-                this.LogError(`Error sending heartbeat: ${e.message}`, '', {});
+                this.LogError(`Error sending heartbeat`, '', {error: e});
                 if (!once)
                     setTimeout(() => { this.SendHeartbeat(); }, this.heartbeatInterval);
             }
@@ -682,7 +682,7 @@ export default class Agent {
 
                         await this.RestAPICall(`job`, 'POST', { _jobDefId: this.inactiveAgentJob.id }, data);
                     } catch (e) {
-                        this.LogError('Error running inactive agent job: ' + e.message, e.stack, {});
+                        this.LogError('Error running inactive agent job', e.stack, { inactiveAgentJob: this.inactiveAgentJob, error: e.toString() });
                     }
                 }
             }
@@ -706,10 +706,10 @@ export default class Agent {
             } catch (e) {
                 if (!this.stopped) {
                     if (e.response && e.response.data && e.response.data.statusCode) {
-                        this.LogError(`Error sending complete message: ${e.message}`, e.stack, { request: msg, response: e.response.data });
+                        this.LogError(`Error sending complete message`, e.stack, { request: msg, response: e.response.data, error: e.toString() });
                         // this.queueCompleteMessages.shift();
                     } else {
-                        this.LogError(`Error sending complete message: ${e.message}`, e.stack, { request: msg });
+                        this.LogError(`Error sending complete message`, e.stack, { request: msg, error: e.toString() });
                         this.queueCompleteMessages.unshift(msg);
                         await SGUtils.sleep(10000);
                     }
@@ -1011,7 +1011,7 @@ export default class Agent {
                         break;
                 }
             } catch (err) {
-                this.LogError(`Error handling stdout tail: ${err.message}`, err.stack, {});
+                this.LogError(`Error handling stdout tail`, err.stack, { error: err.toString() });
                 await SGUtils.sleep(1000);
             }
         }
@@ -1075,7 +1075,7 @@ export default class Agent {
                         let s3Path = `lambda/${task.id}`;
                         let res: any = await SGUtils.RunCommand(`aws s3 cp ${zipFilePath} s3://${step.s3Bucket}/${s3Path}`, {})
                         if (res.stderr != '' || res.code != 0) {
-                            appInst.LogError(`Error loading large lambda function to S3: ${res.stderr}`, '', {stdout: res.stdout, code: res.code});
+                            appInst.LogError(`Error loading large lambda function to S3`, '', { stderr: res.stderr, stdout: res.stdout, code: res.code});
                             throw new Error (`Error loading lambda function`);
                         }
                         lambdaCode.S3Bucket = step.s3Bucket;
@@ -1217,7 +1217,7 @@ export default class Agent {
                 }
                 resolve(outParams);
             } catch (e) {
-                this.LogError('Error in RunStepAsync_Lambda: ' + e.message, e.stack, {});
+                this.LogError('Error in RunStepAsync_Lambda', e.stack, { error: e.toString() });
                 await SGUtils.sleep(1000);
                 error += (e.message + '\n');
                 resolve({ 'status': Enums.StepStatus.FAILED, 'code': -1, 'route': 'fail', 'stderr': error, 'failureCode': TaskFailureCode.AGENT_EXEC_ERROR });
@@ -1301,7 +1301,7 @@ export default class Agent {
                 });
 
                 tail.on("error", function (error) {
-                    this.LogError('Error tailing stdout file: ' + error.message, error.stack, {});
+                    this.LogError('Error tailing stdout file', error.stack, { error: error.toString() });
                 });
 
                 let env: any = Object.assign({}, process.env);
@@ -1319,10 +1319,10 @@ export default class Agent {
                         try { if (fs.existsSync(scriptFileName)) fs.unlinkSync(scriptFileName); } catch (e) { }
 
                         // console.log('error: ' + err);
-                        this.LogError(`Error running script: ${err}`, '', {});
+                        this.LogError(`Error running script`, '', { error: err.toString() });
                         resolve({ 'status': Enums.StepStatus.FAILED, 'code': -1, 'route': 'fail', 'stderr': err, 'failureCode': TaskFailureCode.AGENT_EXEC_ERROR });
                     } catch (e) {
-                        this.LogError('Error handling error event: ' + e.message, e.stack, {});
+                        this.LogError('Error handling error event', e.stack, { error: e.message });
                     }
                 });
 
@@ -1393,7 +1393,7 @@ export default class Agent {
 
                         resolve(outParams);
                     } catch (e) {
-                        this.LogError('Error handling script exit: ' + e.message, e.stack, {});
+                        this.LogError('Error handling script exit', e.stack, { error: e.toString() });
                         resolve({ 'status': Enums.StepStatus.FAILED, 'code': -1, 'route': 'fail', 'stderr': JSON.stringify(e), 'failureCode': TaskFailureCode.AGENT_EXEC_ERROR });
                     }
                 });
@@ -1479,13 +1479,13 @@ export default class Agent {
                                 break;
                         }
                     } catch (err) {
-                        this.LogError(`Error handling stdout tail: ${err.message}`, err.stack, {});
+                        this.LogError(`Error handling stdout tail`, err.stack, { error: err.toString() });
                         await SGUtils.sleep(1000);
                     }
                 }
                 stdoutAnalysisFinished = true;
             } catch (e) {
-                this.LogError('Error in RunStepAsync: ' + e.message, e.stack, {});
+                this.LogError('Error in RunStepAsync', e.stack, { error: e.toString() });
                 await SGUtils.sleep(1000);
                 resolve({ 'status': Enums.StepStatus.FAILED, 'code': -1, 'route': 'fail', 'stderr': e.message, 'failureCode': TaskFailureCode.AGENT_EXEC_ERROR });
             }
@@ -1586,7 +1586,7 @@ export default class Agent {
                                 newScript = newScript.replace(`${arrInjectVarsScript[i]}`, 'null');
                             }
                         } catch (e) {
-                            this.LogError(`Error replacing script @sgg capture for string \"${arrInjectVarsScript[i]}\": ${e.message}`, e.stack, { task: JSON.stringify(task, null, 4) });
+                            this.LogError(`Error replacing script @sgg capture `, e.stack, { task, capture: arrInjectVarsScript[i], error: e.toString() });
                         }
                     }
                     step.script.code = SGUtils.btoa_(newScript);
@@ -1614,7 +1614,7 @@ export default class Agent {
                                 newArgs = newArgs.replace(`${arrInjectVarsArgs[i]}`, 'null');
                             }
                         } catch (e) {
-                            this.LogError(`Error replacing arguments @sgg capture for string \"${arrInjectVarsArgs[i]}\": ${e.message}`, e.stack, { task: JSON.stringify(task, null, 4) });
+                            this.LogError(`Error replacing arguments @sgg capture `, e.stack, { task, capture: arrInjectVarsScript[i], error: e.toString() });
                         }
                     }
                     step.arguments = newArgs;
@@ -1729,12 +1729,12 @@ export default class Agent {
 
             delete runningProcesses[taskOutcome.id];
         } catch (e) {
-            this.LogError('Error in CompleteTaskGeneralErrorHandler: ' + e.message, e.stack, {});
+            this.LogError('Error in CompleteTaskGeneralErrorHandler', e.stack, { error: e.toString() });
         }
     };
 
     CompleteTask = async (params: any, msgKey: string, cb: any) => {
-        this.LogDebug('Task received', { 'MsgKey': msgKey, 'Params': util.inspect(params, false, null) });
+        this.LogDebug('Task received', { msgKey, params });
         this.numActiveTasks += 1;
         try {
             if (this.numActiveTasks > this.maxActiveTasks) {
@@ -1744,7 +1744,7 @@ export default class Agent {
                 await this.RunTask(params);
             }
         } catch (e) {
-            this.LogError('Error in CompleteTask: ' + e.message, e.stack, {});
+            this.LogError('Error in CompleteTask', e.stack, { error: e.toString() });
             // await this.CompleteTaskGeneralErrorHandler(params);
             return cb(true, msgKey);
         } finally {
@@ -1755,7 +1755,7 @@ export default class Agent {
     Update = async (params: any, msgKey: string, cb: any) => {
         try {
             await cb(true, msgKey);
-            await this.LogDebug('Update received', { 'MsgKey': msgKey, 'Params': params });
+            await this.LogDebug('Update received', { msgKey, params });
             if (this.updating) {
                 await this.LogWarning('Version update running - skipping this update', {});
                 return;
@@ -1772,7 +1772,7 @@ export default class Agent {
                 }
 
                 this.updating = true;
-                await this.LogDebug('Update Agent version message received', { 'MsgKey': msgKey, 'Params': params });
+                await this.LogDebug('Update Agent version message received', { msgKey, params });
                 await SGUtils.sleep(2000);
                 await this.StopConsuming();
                 if (this.numActiveTasks > 0)
@@ -1785,13 +1785,13 @@ export default class Agent {
             }
 
             if (params.tags) {
-                await this.LogDebug('Update tags message received', { 'MsgKey': msgKey, 'Params': params });
+                await this.LogDebug('Update tags message received', { msgKey, params });
                 this.tags = params.tags;
                 this.updateUserConfigValues({ 'tags': this.tags });
             }
 
             if (params.propertyOverrides) {
-                await this.LogDebug('Update property overrides message received', { 'MsgKey': msgKey, 'Params': params });
+                await this.LogDebug('Update property overrides message received', { msgKey, params });
 
 
                 // await cb(true, msgKey);
@@ -1802,7 +1802,7 @@ export default class Agent {
             }
 
             if (params.interruptTask) {
-                await this.LogDebug('Interrupt task message received', { 'MsgKey': msgKey, 'Params': params });
+                await this.LogDebug('Interrupt task message received', { msgKey, params });
                 const procToInterrupt = runningProcesses[params.interruptTask.id];
                 if (procToInterrupt && typeof(procToInterrupt) == 'object' && procToInterrupt.pid) {
                     // console.log('Interrupting task');
@@ -1822,7 +1822,7 @@ export default class Agent {
 
             if (params.stopAgent) {
                 this.stopping = true;
-                await this.LogDebug('Stop Agent message received', { 'MsgKey': msgKey, 'Params': params });
+                await this.LogDebug('Stop Agent message received', { msgKey, params });
                 await SGUtils.sleep(2000);
                 await this.StopConsuming();
                 if (this.numActiveTasks > 0)
@@ -1841,7 +1841,7 @@ export default class Agent {
 
             // await cb(true, msgKey);
         } catch (e) {
-            this.LogError(`Error in Update: ${e.message}`, e.stack, {});
+            this.LogError(`Error in Update`, e.stack, { error: e.toString() });
         } finally {
             // this.lockUpdate.release();
         }
@@ -1898,7 +1898,7 @@ export default class Agent {
             }
         }, (err, ret) => {
             if (err) {
-                this.LogError('Error in OnRabbitMQDisconnect: ' + err.message, err.stack, {});
+                this.LogError('Error in OnRabbitMQDisconnect', err.stack, { error: err.toString() });
                 process.exitCode = 1;
             }
         }, {});
@@ -1918,7 +1918,7 @@ export default class Agent {
             await this.ConnectAgentWorkQueuesStomp();
             await this.CheckStompConnection();
         } catch (e) {
-            this.LogError('Error in ConnectStomp: ' + e.message, e.stack, {});
+            this.LogError('Error in ConnectStomp', e.stack, { error: e.toString() });
             // setTimeout(() => { this.ConnectStomp(); }, 30000);
         }
     }
@@ -1941,7 +1941,7 @@ export default class Agent {
             spawn(commandString, [], { stdio: 'pipe', shell: true });
             process.exit();
         } catch (e) {
-            console.error(`Error starting agent launcher'${commandString}': ${e.message}`, e.stack);
+            console.error(`Error starting agent launcher '${commandString}': ${e.message}`, e.stack);
         }
     };
 
@@ -1957,10 +1957,10 @@ export default class Agent {
 
                 cmd.stdout.on('data', (data) => {
                     try {
-                        this.LogDebug('GetCronTab on.stdout.data: ' + data, {});
+                        this.LogDebug('GetCronTab on.stdout.data', { data: data.toString() });
                         stdout = data.toString();
                     } catch (e) {
-                        this.LogError('Error handling stdout in GetCronTab: ' + e.message, e.stack, {});
+                        this.LogError('Error handling stdout in GetCronTab', e.stack, { error: e.toString() });
                         resolve();
                     }
                 });
@@ -1969,12 +1969,12 @@ export default class Agent {
                     try {
                         resolve({ 'code': code, 'stdout': stdout });
                     } catch (e) {
-                        this.LogError('Error handling exit in GetCronTab: ' + e.message, e.stack, {});
+                        this.LogError('Error handling exit in GetCronTab', e.stack, { error: e.toString() });
                         resolve();
                     }
                 });
             } catch (e) {
-                this.LogError(`GetCronTab '${commandString}': ${e.message}`, e.stack, {});
+                this.LogError(`GetCronTab error`, e.stack, { commandString, error: e.toString() });
                 resolve();
             }
         })

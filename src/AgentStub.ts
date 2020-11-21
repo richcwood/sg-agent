@@ -60,8 +60,8 @@ export default class AgentStub {
         ipc.config.retry = 1500;
         ipc.config.silent = true;
         ipc.serve(this.ipcPath, () => ipc.server.on(`sg-agent-msg-${params._teamId}`, (message, socket) => {
-            const logMsg = 'Message from Agent: ' + util.inspect(message, false, null);
-            this.logger.LogDebug(logMsg, {});
+            const logMsg = 'Message from Agent';
+            this.logger.LogDebug(logMsg, message);
             if (message.propertyOverrides) {
                 if (message.propertyOverrides.logLevel) {
                     this.logger.logLevel = message.propertyOverrides.logLevel;
@@ -136,9 +136,9 @@ export default class AgentStub {
                 let newError: any = { config: error.config };
                 if (error.response) {
                     newError = Object.assign(newError, { data: error.response.data, status: error.response.status, headers: error.response.headers });
-                    this.logger.LogError(`RestAPICall error: ${error.message}`, '', newError);
+                    this.logger.LogError(`RestAPICall error:`, '', newError);
                 } else {
-                    this.logger.LogError(`RestAPICall error: ${error.message}`, '', newError);
+                    this.logger.LogError(`RestAPICall error`, '', newError);
                 }
                 reject(Object.assign(newError, { Error: error.message }));
             }
@@ -169,7 +169,7 @@ export default class AgentStub {
                         errProperties['errno'] = e.code;
                     if (e.config && e.config.headers)
                         errProperties['headers'] = e.config.headers;
-                    this.logger.LogError(`Error in AgentLauncher.Start: ${e.Error}`, '', errProperties);
+                    this.logger.LogError(`Error in AgentLauncher.Start`, '', { errProperties, error: e.toString() });
                 }
                 await SGUtils.sleep(30000);
             }
@@ -180,7 +180,7 @@ export default class AgentStub {
     async RunCommand(commandString: any, args: string[]) {
         return new Promise((resolve, reject) => {
             try {
-                this.logger.LogDebug('AgentLauncher running command: ' + commandString + ' ' + args, {});
+                this.logger.LogDebug('AgentLauncher running command', { commandString, args });
                 let cmd: any = spawn(commandString, args, { stdio: 'inherit', shell: true });
 
                 // cmd.stdout.on('data', (data) => {
@@ -205,11 +205,11 @@ export default class AgentStub {
                     try {
                         resolve({ 'code': code });
                     } catch (e) {
-                        this.logger.LogError('Error handling script exit: ' + e.message, e.stack, {});
+                        this.logger.LogError('Error handling script exit', e.stack, { error: e.toString() });
                     }
                 });
             } catch (e) {
-                this.logger.LogError(`Error running command '${commandString}': ${e.message}`, e.stack, {});
+                this.logger.LogError(`Error running command`, e.stack, { error: e.toString() });
             }
         })
     };
@@ -224,7 +224,7 @@ export default class AgentStub {
                         url += `/${this.params.agentArch}`
 
                     let agentDownloadUrl = await this.RestAPICall(url, 'GET', {_teamId: this.params._teamId}, null);
-                    this.logger.LogDebug(`Agent download url from '${url}': ${agentDownloadUrl}`, {});
+                    this.logger.LogDebug(`Agent download url`, { url, agentDownloadUrl});
                     resolve(agentDownloadUrl);
                     break;
                 } catch (err) {
@@ -314,7 +314,7 @@ export default class AgentStub {
                 this.Start();
             }, 5000);
         } catch (e) {
-            this.logger.LogError(`Error in AgentLauncher RunAgent: '${e}'`, e.stack, {});
+            this.logger.LogError(`Error in AgentLauncher RunAgent'`, e.stack, { error: e.toString() });
             throw e;
         }
     }

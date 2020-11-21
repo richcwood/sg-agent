@@ -73,7 +73,7 @@ export class SGUtils {
                         newScript = newScript.replace(`${arrScriptsToInject[i]}`, '');
                     }
                 } catch (e) {
-                    fnLogError(`Error replacing script @sgs capture for string \"${arrScriptsToInject[i]}\": ${e.message}`, e.stack);
+                    fnLogError(`Error replacing script @sgs capture for string`, e.stack, { capture: arrScriptsToInject[i], error: e.toString() });
                 }
             }
         }
@@ -218,7 +218,7 @@ export class SGUtils {
                     cwl.describeLogStreams(describeLogParams, function (err, data) {
                         if (err) {
                             if (err.message != 'The specified log group does not exist.')
-                                logger.LogError('Error in GetCloudWatchLogsEvents.describeLogStreams: ' + err.message, err.stack, {});
+                                logger.LogError('Error in GetCloudWatchLogsEvents.describeLogStreams', err.stack, { error: err.toString() });
                             return resolve('');
                         }
 
@@ -262,7 +262,7 @@ export class SGUtils {
                 let res: any = await new Promise((resolve, reject) => {
                     cwl.getLogEvents(getLogEventsParams, async function (err, data) {
                         if (err) {
-                            logger.LogError('Error in GetCloudWatchLogsEvents.getLogEvents: ' + err.message, err.stack, {});
+                            logger.LogError('Error in GetCloudWatchLogsEvents.getLogEvents', err.stack, { error: err.toString()});
                             if (err.message == 'Rate exceeded')
                                 await SGUtils.sleep(5000);
                             return resolve();
