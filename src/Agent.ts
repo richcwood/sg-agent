@@ -1054,21 +1054,24 @@ export default class Agent {
                     await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, 'PUT', null, updates);
                     runParams.updateId += 1;
 
-                    if (step.lambdaRuntime.startsWith('node')) {
+                    if (step.lambdaRuntime.toUpperCase().startsWith('node')) {
                         zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_NodeJS(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
                         const zipContents = fs.readFileSync(zipFilePath);
                         lambdaCode.ZipFile = zipContents;
                         handler = 'index.handler';
-                    } else if (step.lambdaRuntime.startsWith('python')) {
+                    } else if (step.lambdaRuntime.toUpperCase().startsWith('python')) {
                         zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_Python(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
                         const zipContents = fs.readFileSync(zipFilePath);
                         lambdaCode.ZipFile = zipContents;
                         handler = 'lambda_function.lambda_handler';
-                    } else if (step.lambdaRuntime.startsWith('ruby')) {
+                    } else if (step.lambdaRuntime.toUpperCase().startsWith('ruby')) {
                         zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_Ruby(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
                         const zipContents = fs.readFileSync(zipFilePath);
                         lambdaCode.ZipFile = zipContents;
                         handler = 'lambda_function.lambda_handler';
+                    } else {
+                        appInst.LogError(`Unsupported lambda runtime`, '', { step });
+                        throw new Error('Unsupported lambda runtime');
                     }
                     const zipFileSizeMB: number = fs.statSync(zipFilePath).size / 1024.0 / 1024.0;
                     if (zipFileSizeMB > 0) {
