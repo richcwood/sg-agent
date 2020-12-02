@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.39';
+const version = 'v0.0.0.40';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -1054,17 +1054,17 @@ export default class Agent {
                     await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, 'PUT', null, updates);
                     runParams.updateId += 1;
 
-                    if (step.lambdaRuntime.toUpperCase().startsWith('node')) {
+                    if (step.lambdaRuntime.toLowerCase().startsWith('node')) {
                         zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_NodeJS(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
                         const zipContents = fs.readFileSync(zipFilePath);
                         lambdaCode.ZipFile = zipContents;
                         handler = 'index.handler';
-                    } else if (step.lambdaRuntime.toUpperCase().startsWith('python')) {
+                    } else if (step.lambdaRuntime.toLowerCase().startsWith('python')) {
                         zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_Python(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
                         const zipContents = fs.readFileSync(zipFilePath);
                         lambdaCode.ZipFile = zipContents;
                         handler = 'lambda_function.lambda_handler';
-                    } else if (step.lambdaRuntime.toUpperCase().startsWith('ruby')) {
+                    } else if (step.lambdaRuntime.toLowerCase().startsWith('ruby')) {
                         zipFilePath = (<string>await SGUtils.CreateAWSLambdaZipFile_Ruby(workingDirectory, SGUtils.atob(step.script.code), step.lambdaDependencies, task.id));
                         const zipContents = fs.readFileSync(zipFilePath);
                         lambdaCode.ZipFile = zipContents;
