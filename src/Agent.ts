@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.40';
+const version = 'v0.0.0.41';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -938,24 +938,23 @@ export default class Agent {
                             const elem: string = elems[j];
                             if (elem.startsWith('Duration: ')) {
                                 try {
-                                    params.sgcDuration = elem.split(':').slice(1,3).join(' ').trim();
+                                    params.sgcDuration = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
                                 } catch (err) {}
-        
                             } else if (elem.startsWith('Billed Duration: ')) {
                                 try {
-                                    params.sgcBilledDuration = elem.split(':').slice(1,3).join(' ').trim();
+                                    params.sgcBilledDuration = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
                                 } catch (err) {}        
                             } else if (elem.startsWith('Memory Size: ')) {
                                 try {
-                                    params.sgcMemSize = elem.split(':').slice(1,3).join(' ').trim();
+                                    params.sgcMemSize = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
                                 } catch (err) {}        
                             } else if (elem.startsWith('Max Memory Used: ')) {
                                 try {
-                                    params.sgcMaxMemUsed = elem.split(':').slice(1,3).join(' ').trim();
+                                    params.sgcMaxMemUsed = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
                                 } catch (err) {}        
                             } else if (elem.startsWith('Init Duration: ')) {
                                 try {
-                                    params.sgcInitDuration = elem.split(':').slice(1,3).join(' ').trim();
+                                    params.sgcInitDuration = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
                                 } catch (err) { }
                             }
                         }
