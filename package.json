@@ -14,7 +14,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@stomp/stompjs": "5.4.4",
+    "@stomp/stompjs": "6.0.0",
     "@types/node": "11.13.4",
     "amqplib": "0.5.5",
     "async-lock": "1.2.2",

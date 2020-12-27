@@ -59,6 +59,7 @@ export class StompConnector {
                     heartbeatOutgoing: 10000
                 });
 
+                this.stompClient.discardWebsocketOnCommFailure = true
                 this.stompClient.onConnect = this.OnConnect.bind(this);
                 this.stompClient.onStompError = this.OnStompError.bind(this);
 
@@ -108,7 +109,7 @@ export class StompConnector {
 
     OnConnect() {
         this.connectedToStomp = true;
-        this.LogDebug('Connected to Stomp', {});
+        // this.LogDebug('Connected to Stomp', {});
     }
 
     OnStompError = (err) => {
@@ -117,12 +118,25 @@ export class StompConnector {
         this.fnOnDisconnect();
     };
 
-    IsConnected = () => {
-        if (!this.connectedToStomp)
+    async IsConnected(queueName: string) {
+        if (!this.connectedToStomp) {
+            // this.LogError('IsConnected - connectedToStomp = false', '', {});
             return false;
-        if (this.stompClient && this.stompClient.webSocket)
-            return this.stompClient.webSocket.readyState != WebSocket.CLOSED;
-        return false;
+        }
+        if (this.stompClient && this.stompClient.webSocket) {
+            // this.LogError('IsConnected - webSocket check', '', {state: this.stompClient.webSocket.readyState});
+            if (this.stompClient.webSocket.readyState != WebSocket.OPEN)
+                return false;
+        }
+        const queueDetails: any = await this.rmqAdmin.getQueueDetails(queueName);
+        if (queueDetails && queueDetails.data && queueDetails.data.consumers < 1) {
+            // this.LogError('IsConnected = false - no consumers', '', {queue: queueDetails.data});
+            this.connectedToStomp = false;
+            return false;
+        } else {
+            // this.LogError('IsConnected = true', '', {});
+            return true;
+        }
     }
 
     async ConsumeQueue(queueName: string, exclusive: boolean, durable: boolean, autoDelete: boolean, noAck: boolean, fnHandleMessage: any, exchange: string, expires: number = 0) {

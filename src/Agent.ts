@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.41';
+const version = 'v0.0.0.42';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -651,6 +651,7 @@ export default class Agent {
                 setTimeout(() => { this.SendHeartbeat(); }, this.heartbeatInterval);
         } catch (e) {
             if (!this.stopped) {
+                delete e.request;
                 this.LogError(`Error sending heartbeat`, '', {error: e});
                 if (!once)
                     setTimeout(() => { this.SendHeartbeat(); }, this.heartbeatInterval);
@@ -1881,7 +1882,9 @@ export default class Agent {
         if (this.stopped)
             return;
 
-        if (!this.stompConsumer.IsConnected()) {
+        // this.LogDebug('Starting CheckStompConnection', {});
+        if (!await this.stompConsumer.IsConnected(SGStrings.GetAgentQueue(this._teamId, this.instanceId.toHexString()))) {
+            // this.LogError('IsConnected returned false', '', {});
             await this.OnRabbitMQDisconnect();
         } else {
             setTimeout(() => { this.CheckStompConnection(); }, 10000);
@@ -1893,7 +1896,7 @@ export default class Agent {
             return;
 
         lock.acquire(lockConnectStomp, async () => {
-            if (!this.stompConsumer.IsConnected()) {
+            if (!await this.stompConsumer.IsConnected(SGStrings.GetAgentQueue(this._teamId, this.instanceId.toHexString()))) {
                 this.LogError(`Not connected to RabbitMQ - attempting to connect`, '', {});
                 await this.stompConsumer.Stop();
                 await this.ConnectStomp();
@@ -1914,11 +1917,17 @@ export default class Agent {
                 await SGUtils.sleep(ttw);
             }
             this.lastStompConnectAttemptTime = Date.now();
-            this.LogDebug('Connecting to stomp', {url: this.stompUrl, user: this.rmqUsername, password: this.rmqPassword, vhost: this.rmqVhost});
+            this.LogDebug('Connecting to stomp', { url: this.stompUrl, user: this.rmqUsername, password: this.rmqPassword, vhost: this.rmqVhost });
             this.stompConsumer = new StompConnector(this.appName, this.instanceId.toHexString(), this.stompUrl, this.rmqUsername, this.rmqPassword, this.rmqAdminUrl, this.rmqVhost, 1, () => this.OnRabbitMQDisconnect(), this.logger);
-            await this.stompConsumer.Start();
+            try {
+                await this.stompConsumer.Start();
+            } catch (e) {
+                this.LogError('Error starting stomp - trying again in 30 seconds', e.stack, { error: e.toString() });
+                setTimeout(() => { this.ConnectStomp(); }, 30000);
+                return;
+            }
             await this.ConnectAgentWorkQueuesStomp();
-            await this.CheckStompConnection();
+            setTimeout(async() => { await this.CheckStompConnection(); }, 30000);
         } catch (e) {
             this.LogError('Error in ConnectStomp', e.stack, { error: e.toString() });
             // setTimeout(() => { this.ConnectStomp(); }, 30000);
