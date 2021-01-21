@@ -21,7 +21,6 @@ process.on('unhandledRejection', (reason, p) => {
 (async () => {
     let _teamId = config.get('_teamId');
     let env = config.get('env');
-    let token = config.get('token');
     let apiUrl = config.get('apiUrl');
     let apiPort = config.get('apiPort');
     let agentLogsAPIVersion = config.get('agentLogsAPIVersion');
@@ -34,7 +33,6 @@ process.on('unhandledRejection', (reason, p) => {
     const params = {
         _teamId: _teamId,
         env: env,
-        token: token,
         apiUrl: apiUrl,
         apiPort: apiPort,
         agentLogsAPIVersion: agentLogsAPIVersion,

@@ -23,7 +23,6 @@ process.on('unhandledRejection', (reason, p) => {
 
         let _teamId = config.get('_teamId');
         let env = config.get('env');
-        let token = config.get('token');
         let apiUrl = config.get('apiUrl');
         let apiPort = config.get('apiPort');
         let agentLogsAPIVersion = config.get('agentLogsAPIVersion');
@@ -36,7 +35,6 @@ process.on('unhandledRejection', (reason, p) => {
         const params = {
             _teamId: _teamId,
             env: env,
-            token: token,
             apiUrl: apiUrl,
             apiPort: apiPort,
             agentLogsAPIVersion: agentLogsAPIVersion,
@@ -55,9 +53,9 @@ process.on('unhandledRejection', (reason, p) => {
         }
     
         const Agent_1 = require('./Agent');
-        let agentInstance = new Agent_1.default(params);
+       let agentInstance = new Agent_1.default(params);
         await agentInstance.Init();
     } catch(e) {
-        console.log(`Error in Agent: "${e}"`);
+        console.log(`Error in LaunchAgentDebug: "${e}"`);
     }
 })();

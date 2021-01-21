@@ -40,7 +40,6 @@ process.on('unhandledRejection', (reason, p) => {
         let apiUrl = config.get('apiUrl');
         let apiPort = config.get('apiPort');
         let agentLogsAPIVersion = config.get('agentLogsAPIVersion');
-        let token = config.get('token');
         let agentPlatform = config.get('agentPlatform');
         let agentArch = config.get('agentArch');
         let env = config.get('env');
@@ -57,7 +56,6 @@ process.on('unhandledRejection', (reason, p) => {
             apiUrl: apiUrl,
             apiPort: apiPort,
             agentLogsAPIVersion: agentLogsAPIVersion,
-            token: token,
             agentPlatform: agentPlatform,
             agentArch: agentArch,
             logDest: logDest,

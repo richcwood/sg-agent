@@ -2,12 +2,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as AsyncLock from 'async-lock';
 import * as FormData from 'form-data';
-import axios from 'axios';
 import { LogLevel } from './Enums.js';
 import { SGUtils } from './SGUtils';
 import * as mongodb from 'mongodb';
 import util = require('util');
 import * as compressing from 'compressing';
+import * as _ from 'lodash';
 
 
 export class AgentLogger {
@@ -28,7 +28,7 @@ export class AgentLogger {
     public instanceId: string = '';
 
 
-    constructor(public appName: string, public teamId: string, public logLevel: LogLevel, public logsPath: string, public uploadURL: string, public uploadPort: string, public uploadAPIVersion: string, public uploadToken: any, public env: string, public logDest: string = 'file', public machineId: string = undefined) {
+    constructor(public appName: string, public teamId: string, public logLevel: LogLevel, public logsPath: string, public uploadURL: string, public uploadPort: string, public uploadAPIVersion: string, public restApiCall: any, public env: string, public logDest: string = 'file', public machineId: string = undefined) {
         if (!fs.existsSync(this.logsPath))
             fs.mkdirSync(this.logsPath);
 
@@ -238,49 +238,14 @@ export class AgentLogger {
 
             var file = fs.createReadStream(compressedFilePath);
 
-            let apiUrl = this.uploadURL;
-            if (this.uploadPort != '')
-                apiUrl += `:${this.uploadPort}`
+            let form = new FormData();
+            form.append('buffer', Buffer.alloc(10));
+            form.append('logFile', file);
 
-            let url = `${apiUrl}/api/${this.uploadAPIVersion}/agentlog`;
-
-            await new Promise((resolve, reject) => {
-                try {
-                    const config = {
-                        headers: {
-                            _teamId: this.teamId,
-                            Cookie: `Auth=${this.uploadToken};`,
-                            'Content-Type': 'multipart/form-data'
-                        }
-                    };
-
-                    let form = new FormData();
-                    form.append('buffer', Buffer.alloc(10));
-                    form.append('logFile', file);
-
-                    axios.create({
-                        headers: form.getHeaders()
-                    }).post(url, form, config).then(response => {
-                        // this.LogDebug(`Uploaded log file '${compressedFilePath}'`, {});
-                        if (fs.existsSync(filePath))
-                            fs.unlinkSync(filePath);
-                        if (fs.existsSync(compressedFilePath))
-                            fs.unlinkSync(compressedFilePath);
-                        resolve();
-                    }).catch(error => {
-                        success = false;
-                        this.LogError(`Error uploading log file 1`, error.stack, { filePath, error: error.Error, headers: error.headers, method: error.method, url: error.url });
-                        resolve();
-                    });
-                } catch (e) {
-                    success = false;
-                    this.LogError(`Error uploading log file 2`, '', {filePath, error: e});
-                    resolve();
-                }
-            });
+            await this.restApiCall('agentlog', 'POST', {'Content-Type': 'multipart/form-data'}, form);
         } catch (e) {
             success = false;
-            this.LogError(`Error uploading log file 3`, '', {filePath, error: e});
+            this.LogError(`Error uploading log file`, '', {filePath, error: e});
         }
 
         if (!success)

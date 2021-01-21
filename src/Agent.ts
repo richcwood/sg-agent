@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.42';
+const version = 'v0.0.0.43';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -71,6 +71,9 @@ export default class Agent {
     private logLevel: LogLevel = LogLevel.WARNING;
     private heartbeatInterval: number = 30000;
     private token: string;
+    private refreshToken: string;
+    private accessKeyId: string;
+    private accessKeySecret: string;
     private userConfig: any = {};
     private timeLastActive: number = Date.now();
     private inactivePeriodWaitTime: number = 0;
@@ -111,7 +114,8 @@ export default class Agent {
 
         this._teamId = params._teamId;
         this.env = params.env;
-        this.token = params.token;
+        this.accessKeyId = params.accessKeyId;
+        this.accessKeySecret = params.accessKeySecret;
         this.apiUrl = params.apiUrl;
         this.apiPort = params.apiPort;
         this.agentLogsAPIVersion = params.agentLogsAPIVersion;
@@ -143,8 +147,29 @@ export default class Agent {
         this.ipAddress = SGUtils.getIpAddress();
         this.timezone = moment.tz.guess();
 
+        this.userConfig = this.getUserConfigValues();
+
+        if (process.env.ACCESS_KEY_ID)
+            this.accessKeyId = process.env.ACCESS_KEY_ID;
+        if (this.userConfig.ACCESS_KEY_ID)
+            this.accessKeyId = this.userConfig.ACCESS_KEY_ID;
+
+        if (!this.accessKeyId) {
+            console.log(`Error starting the saas glue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
+            process.exit(1);
+        }
+
+        if (process.env.ACCESS_KEY_SECRET)
+            this.accessKeySecret = process.env.ACCESS_KEY_SECRET;
+        if (this.userConfig.ACCESS_KEY_SECRET)
+            this.accessKeySecret = this.userConfig.ACCESS_KEY_SECRET;
+
+        if (!this.accessKeySecret) {
+            console.log(`Error starting the saas glue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
+            process.exit(1);
+        }
+
         if (this.env != 'unittest') {
-            this.userConfig = this.getUserConfigValues();
             if ('tags' in this.userConfig)
                 this.tags = this.userConfig['tags'];
             if ('propertyOverrides' in this.userConfig)
@@ -157,11 +182,11 @@ export default class Agent {
 
         this.ipcPath = process.argv[2];
 
-        this.logger = new AgentLogger(this.appName, this._teamId, this.logLevel, process.cwd() + '/logs', this.apiUrl, this.apiPort, this.agentLogsAPIVersion, params.token, this.env, this.logDest, this.machineId);
+        this.logger = new AgentLogger(this.appName, this._teamId, this.logLevel, process.cwd() + '/logs', this.apiUrl, this.apiPort, this.agentLogsAPIVersion, this.RestAPICall, this.env, this.logDest, this.machineId);
         this.logger.Start();
 
         this.logger.LogDebug(`Starting Agent`, { tags: this.tags, propertyOverrides: this.UpdatePropertyOverrides, userConfigPath, env: this.env });
-    }
+}
 
 
     async CreateAgentInAPI() {
@@ -365,9 +390,75 @@ export default class Agent {
     };
 
 
+    async RestAPILogin() {
+        let apiUrl = this.apiUrl;
+
+        const apiPort = this.apiPort;
+
+        if (apiPort != '')
+            apiUrl += `:${apiPort}`
+        const url = `${apiUrl}/login/apiLogin`;
+
+        const response = await axios({
+            url,
+            method: 'POST',
+            responseType: 'text',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            data: {
+                'accessKeyId': this.accessKeyId,
+                'accessKeySecret': this.accessKeySecret
+            }
+        });
+
+        let tmp = response.headers['set-cookie'][0].split(';');
+        let auth: string = tmp[0];
+        auth = auth.substring(5) + ';';
+        this.token = auth;
+
+        this.refreshToken = response.data.config2;
+    }
+
+
+    async RefreshAPIToken() {
+        let apiUrl = this.apiUrl;
+
+        const apiPort = this.apiPort;
+
+        if (apiPort != '')
+            apiUrl += `:${apiPort}`
+        const url = `${apiUrl}/login/refreshtoken`;
+
+        const response = await axios({
+            url,
+            method: 'POST',
+            responseType: 'text',
+            headers: {
+                'Content-Type': 'application/json',
+                Cookie: `Auth=${this.refreshToken};`
+            },
+            data: {
+                'accessKeyId': this.accessKeyId,
+                'accessKeySecret': this.accessKeySecret
+            }
+        });
+
+        let tmp = response.headers['set-cookie'][0].split(';');
+        let auth: string = tmp[0];
+        auth = auth.substring(5) + ';';
+        this.token = auth;
+
+        this.refreshToken = response.data.config2;
+    }
+
+
     async RestAPICall(url: string, method: string, headers: any = {}, data: any = {}) {
         return new Promise(async (resolve, reject) => {
             try {
+                if (!this.token)
+                    await this.RestAPILogin();
+                    
                 let apiUrl = this.apiUrl;
                 let apiVersion = this.agentLogsAPIVersion;
 
@@ -375,28 +466,41 @@ export default class Agent {
 
                 if (apiPort != '')
                     apiUrl += `:${apiPort}`
-                url = `${apiUrl}/api/${apiVersion}/${url}`;
+                let fullurl = `${apiUrl}/api/${apiVersion}/${url}`;
 
                 const combinedHeaders: any = Object.assign({
                     Cookie: `Auth=${this.token};`,
                     _teamId: this._teamId
                 }, headers);
 
-                // this.logger.LogDebug(`RestAPICall`, {url, method, combinedHeaders, data, token: this.token});
-                // console.log('Agent RestAPICall -> url ', url, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.token);
+                // this.logger.LogDebug(`RestAPICall`, {fullurl, method, combinedHeaders, data, token: this.token});
+                // console.log('Agent RestAPICall -> url ', fullurl, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.token);
 
                 const response = await axios({
-                    url,
+                    url: fullurl,
                     method: method,
                     responseType: 'text',
                     headers: combinedHeaders,
                     data: data
                 });
+
+                if (response.headers['set-cookie'] && _.isArray(response.headers['set-cookie']) && response.headers['set-cookie'].length > 0) {
+                    let tmp = response.headers['set-cookie'][0].split(';');
+                    let auth: string = tmp[0];
+                    auth = auth.substring(5) + ';';
+                    this.token = auth;
+                }
+
                 resolve(response.data.data);
             } catch (e) {
-                this.logger.LogDebug(`RestAPICall error`, { error: e.toString() });
-                e.message = `Error occurred calling ${method} on '${url}': ${e.message}`;
-                reject(e);
+                if (e.response && e.response.data && e.response.data.errors && _.isArray(e.response.data.errors) && e.response.data.errors.length > 0 && e.response.data.errors[0].description == 'The access token expired') {
+                    await this.RefreshAPIToken();
+                    resolve(this.RestAPICall(url, method, headers, data));
+                } else {
+                    this.logger.LogDebug(`RestAPICall error`, { error: e.toString() });
+                    e.message = `Error occurred calling ${method} on '${url}': ${e.message}`;
+                    reject(e);
+                }
             }
         });
     }
@@ -652,7 +756,7 @@ export default class Agent {
         } catch (e) {
             if (!this.stopped) {
                 delete e.request;
-                this.LogError(`Error sending heartbeat`, '', {error: e});
+                this.LogError(`Error sending heartbeat`, '', {Error: e.message, Data: e.response.data});
                 if (!once)
                     setTimeout(() => { this.SendHeartbeat(); }, this.heartbeatInterval);
             }
