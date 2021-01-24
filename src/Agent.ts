@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.43';
+const version = 'v0.0.0.44';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -391,37 +391,45 @@ export default class Agent {
 
 
     async RestAPILogin() {
-        let apiUrl = this.apiUrl;
+        try {
+            let apiUrl = this.apiUrl;
 
-        const apiPort = this.apiPort;
+            const apiPort = this.apiPort;
 
-        if (apiPort != '')
-            apiUrl += `:${apiPort}`
-        const url = `${apiUrl}/login/apiLogin`;
+            if (apiPort != '')
+                apiUrl += `:${apiPort}`
+            const url = `${apiUrl}/login/apiLogin`;
 
-        const response = await axios({
-            url,
-            method: 'POST',
-            responseType: 'text',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            data: {
-                'accessKeyId': this.accessKeyId,
-                'accessKeySecret': this.accessKeySecret
+            const response = await axios({
+                url,
+                method: 'POST',
+                responseType: 'text',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                data: {
+                    'accessKeyId': this.accessKeyId,
+                    'accessKeySecret': this.accessKeySecret
+                }
+            });
+
+            let tmp = response.headers['set-cookie'][0].split(';');
+            let auth: string = tmp[0];
+            auth = auth.substring(5) + ';';
+            this.token = auth;
+
+            this.refreshToken = response.data.config2;
+        } catch (e) {
+            if (e.response && e.response.data && e.response.data.statusCode == 403) {
+                console.log(`Invalid authorization credentials - exiting.`);
+                process.exit(1);
             }
-        });
-
-        let tmp = response.headers['set-cookie'][0].split(';');
-        let auth: string = tmp[0];
-        auth = auth.substring(5) + ';';
-        this.token = auth;
-
-        this.refreshToken = response.data.config2;
+        }
     }
 
 
     async RefreshAPIToken() {
+        try {
         let apiUrl = this.apiUrl;
 
         const apiPort = this.apiPort;
@@ -430,26 +438,31 @@ export default class Agent {
             apiUrl += `:${apiPort}`
         const url = `${apiUrl}/login/refreshtoken`;
 
-        const response = await axios({
-            url,
-            method: 'POST',
-            responseType: 'text',
-            headers: {
-                'Content-Type': 'application/json',
-                Cookie: `Auth=${this.refreshToken};`
-            },
-            data: {
-                'accessKeyId': this.accessKeyId,
-                'accessKeySecret': this.accessKeySecret
+            const response = await axios({
+                url,
+                method: 'POST',
+                responseType: 'text',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Cookie: `Auth=${this.refreshToken};`
+                },
+                data: {
+                    'accessKeyId': this.accessKeyId,
+                    'accessKeySecret': this.accessKeySecret
+                }
+            });
+
+            let tmp = response.headers['set-cookie'][0].split(';');
+            let auth: string = tmp[0];
+            auth = auth.substring(5) + ';';
+            this.token = auth;
+
+            this.refreshToken = response.data.config2;
+        } catch (err) {
+            if (err.response && err.response.data && err.response.data.statusCode == 403) {
+                await this.RestAPILogin();
             }
-        });
-
-        let tmp = response.headers['set-cookie'][0].split(';');
-        let auth: string = tmp[0];
-        auth = auth.substring(5) + ';';
-        this.token = auth;
-
-        this.refreshToken = response.data.config2;
+        }
     }
 
 
