@@ -36,7 +36,6 @@ process.on('unhandledRejection', (reason, p) => {
         machineId = os.hostname();
         ipAddress = SGUtils_1.SGUtils.getIpAddress();
 
-        let _teamId = config.get('_teamId');
         let apiUrl = config.get('apiUrl');
         let apiPort = config.get('apiPort');
         let agentLogsAPIVersion = config.get('agentLogsAPIVersion');
@@ -50,7 +49,6 @@ process.on('unhandledRejection', (reason, p) => {
 
         const params = {
             appName: 'AgentStub',
-            _teamId: _teamId,
             machineId: machineId,
             ipAddress: ipAddress,
             apiUrl: apiUrl,
@@ -79,6 +77,7 @@ process.on('unhandledRejection', (reason, p) => {
 
         const AgentStub_1 = require('./AgentStub');
         let agentStubInstance = new AgentStub_1.default(params);
+        await agentStubInstance.Init();
         await agentStubInstance.Start();
     } catch (e) {
         console.log(`Error in AgentLauncher: "${e}"`);

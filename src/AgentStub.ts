@@ -60,16 +60,15 @@ export default class AgentStub {
                     this.machineId = userConfig.debug.machineId;
                 if (userConfig.debug.apiUrl)
                     this.apiUrl = userConfig.debug.apiUrl;
-                if (userConfig.debug._teamId)
-                    params._teamId = userConfig.debug._teamId;
-                if (userConfig.debug.accessKeyId)
-                    params.accessKeyId = userConfig.debug.accessKeyId;
-                if (userConfig.debug.accessKeySecret)
-                    params.accessKeySecret = userConfig.debug.accessKeySecret;
             }
         }
+    }
 
-        this.logger = new AgentLogger(params.appName, params._teamId, this.logLevel, process.cwd() + '/installer_logs', this.apiUrl, params.apiPort, params.agentLogsAPIVersion, this.RestAPICall, params.env, this.logDest, this.machineId);
+
+    async Init() {
+        await this.RestAPILogin();
+
+        this.logger = new AgentLogger(this.params.appName, this.params._teamId, this.logLevel, process.cwd() + '/installer_logs', this.apiUrl, this.params.apiPort, this.params.agentLogsAPIVersion, this.RestAPICall, this.params.env, this.logDest, this.machineId);
         this.logger.Start();
 
         this.agentPath = path.dirname(process.argv[0]) + path.sep + 'sg-agent';
@@ -82,7 +81,7 @@ export default class AgentStub {
         this.ipcPath = `/tmp/app.${SGUtils.makeid(10)}.${ipc.config.id}`;
         ipc.config.retry = 1500;
         ipc.config.silent = true;
-        ipc.serve(this.ipcPath, () => ipc.server.on(`sg-agent-msg-${params._teamId}`, (message, socket) => {
+        ipc.serve(this.ipcPath, () => ipc.server.on(`sg-agent-msg-${this.params._teamId}`, (message, socket) => {
             const logMsg = 'Message from Agent';
             this.logger.LogDebug(logMsg, message);
             if (message.propertyOverrides) {
@@ -97,11 +96,11 @@ export default class AgentStub {
                     this.logger.uploadURL = this.apiUrl;
                 }
                 if (message.propertyOverrides.apiPort) {
-                    params.apiPort = message.propertyOverrides.apiPort;
+                    this.params.apiPort = message.propertyOverrides.apiPort;
                     this.logger.uploadPort = this.params.apiPort;
                 }
                 if (message.propertyOverrides.agentLogsAPIVersion) {
-                    params.agentLogsAPIVersion = message.propertyOverrides.agentLogsAPIVersion;
+                    this.params.agentLogsAPIVersion = message.propertyOverrides.agentLogsAPIVersion;
                     this.logger.uploadAPIVersion = this.params.agentLogsAPIVersion;
                 }
             }
@@ -157,6 +156,7 @@ export default class AgentStub {
         this.params.token = auth;
 
         this.params.refreshToken = response.data.config2;
+        this.params._teamId = response.data.config3;
     }
 
 
@@ -189,6 +189,7 @@ export default class AgentStub {
         this.params.token = auth;
 
         this.params.refreshToken = response.data.config2;
+        this.params._teamId = response.data.config3;
     }
 
 
@@ -197,7 +198,7 @@ export default class AgentStub {
             try {
                 if (!this.params.token)
                     await this.RestAPILogin();
-                                    let apiUrl = this.apiUrl;
+                let apiUrl = this.apiUrl;
                 let apiVersion = this.params.agentLogsAPIVersion;
 
                 const apiPort = this.params.apiPort;
@@ -397,7 +398,7 @@ export default class AgentStub {
         try {
             let cmdString = this.agentPath;
             if (fs.existsSync(this.agentPath)) {
-                res = await this.RunCommand(cmdString, [this.ipcPath, '--LogDest', this.logDest, '--LogLevel', this.logLevel]);
+                res = await this.RunCommand(cmdString, [this.ipcPath, '--LogDest', this.logDest, '--LogLevel', this.logLevel, '--TeamId', this.params._teamId]);
                 let logMsg: string;
                 if (res.code == 96) {
                     logMsg = 'Updating and restarting agent';
