@@ -381,6 +381,9 @@ export default class AgentStub {
                     }));
                 });
 
+                if (fs.existsSync(agentPathCompressed))
+                    fs.unlinkSync(agentPathCompressed);
+
                 resolve();
                 return;
             });
