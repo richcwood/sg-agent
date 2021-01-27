@@ -34,20 +34,20 @@ export default class AgentStub {
             this.logLevel = parseInt(params['logLevel']);
 
         const userConfig: any = this.getUserConfigValues();
-        if (process.env.ACCESS_KEY_ID)
-            params.accessKeyId = process.env.ACCESS_KEY_ID;
-        if (userConfig.ACCESS_KEY_ID)
-            params.accessKeyId = userConfig.ACCESS_KEY_ID;
+        if (process.env.SG_ACCESS_KEY_ID)
+            params.accessKeyId = process.env.SG_ACCESS_KEY_ID;
+        if (userConfig.SG_ACCESS_KEY_ID)
+            params.accessKeyId = userConfig.SG_ACCESS_KEY_ID;
 
         if (!params.accessKeyId) {
             console.log(`Error starting the saas glue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
             process.exit(1);
         }
     
-        if (process.env.ACCESS_KEY_SECRET)
-            params.accessKeySecret = process.env.ACCESS_KEY_SECRET;
-        if (userConfig.ACCESS_KEY_SECRET)
-            params.accessKeySecret = userConfig.ACCESS_KEY_SECRET;
+        if (process.env.SG_ACCESS_KEY_SECRET)
+            params.accessKeySecret = process.env.SG_ACCESS_KEY_SECRET;
+        if (userConfig.SG_ACCESS_KEY_SECRET)
+            params.accessKeySecret = userConfig.SG_ACCESS_KEY_SECRET;
 
         if (!params.accessKeySecret) {
             console.log(`Error starting the saas glue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);

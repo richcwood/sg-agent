@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.46';
+const version = 'v0.0.0.47';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -40,6 +40,8 @@ let runningProcesses: any = {};
 
 const lock = new AsyncLock();
 const lockConnectStomp: string = 'lock_connect_stomp_key';
+const lockApiLogin: string = 'lock_api_login_key';
+const lockRefreshToken: string = 'lock_refresh_token_key';
 
 export default class Agent {
     private appName: string;
@@ -71,6 +73,7 @@ export default class Agent {
     private logLevel: LogLevel = LogLevel.WARNING;
     private heartbeatInterval: number = 30000;
     private token: string;
+    private tokenRefreshTime: number = 0;
     private refreshToken: string;
     private accessKeyId: string;
     private accessKeySecret: string;
@@ -149,20 +152,20 @@ export default class Agent {
 
         this.userConfig = this.getUserConfigValues();
 
-        if (process.env.ACCESS_KEY_ID)
-            this.accessKeyId = process.env.ACCESS_KEY_ID;
-        if (this.userConfig.ACCESS_KEY_ID)
-            this.accessKeyId = this.userConfig.ACCESS_KEY_ID;
+        if (process.env.SG_ACCESS_KEY_ID)
+            this.accessKeyId = process.env.SG_ACCESS_KEY_ID;
+        if (this.userConfig.SG_ACCESS_KEY_ID)
+            this.accessKeyId = this.userConfig.SG_ACCESS_KEY_ID;
 
         if (!this.accessKeyId) {
             console.log(`Error starting the saas glue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
             process.exit(1);
         }
 
-        if (process.env.ACCESS_KEY_SECRET)
-            this.accessKeySecret = process.env.ACCESS_KEY_SECRET;
-        if (this.userConfig.ACCESS_KEY_SECRET)
-            this.accessKeySecret = this.userConfig.ACCESS_KEY_SECRET;
+        if (process.env.SG_ACCESS_KEY_SECRET)
+            this.accessKeySecret = process.env.SG_ACCESS_KEY_SECRET;
+        if (this.userConfig.SG_ACCESS_KEY_SECRET)
+            this.accessKeySecret = this.userConfig.SG_ACCESS_KEY_SECRET;
 
         if (!this.accessKeySecret) {
             console.log(`Error starting the saas glue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
@@ -390,79 +393,119 @@ export default class Agent {
     };
 
 
-    async RestAPILogin() {
-        try {
-            let apiUrl = this.apiUrl;
+    async RestAPILogin(retryCount: number = 0) {
+        return new Promise(async (resolve, reject) => {
+            lock.acquire(lockApiLogin, async () => {
+                try {
+                    if ((new Date().getTime() - this.tokenRefreshTime < 30000) && this.token)
+                        return;
 
-            const apiPort = this.apiPort;
+                    this.token = '';
 
-            if (apiPort != '')
-                apiUrl += `:${apiPort}`
-            const url = `${apiUrl}/login/apiLogin`;
+                    let apiUrl = this.apiUrl;
 
-            const response = await axios({
-                url,
-                method: 'POST',
-                responseType: 'text',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                data: {
-                    'accessKeyId': this.accessKeyId,
-                    'accessKeySecret': this.accessKeySecret
+                    const apiPort = this.apiPort;
+
+                    if (apiPort != '')
+                        apiUrl += `:${apiPort}`
+                    const url = `${apiUrl}/login/apiLogin`;
+
+                    const response = await axios({
+                        url,
+                        method: 'POST',
+                        responseType: 'text',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        data: {
+                            'accessKeyId': this.accessKeyId,
+                            'accessKeySecret': this.accessKeySecret
+                        }
+                    });
+
+                    let tmp = response.headers['set-cookie'][0].split(';');
+                    let auth: string = tmp[0];
+                    auth = auth.substring(5) + ';';
+                    this.token = auth;
+                    this.tokenRefreshTime = new Date().getTime();
+
+                    this.refreshToken = response.data.config2;
+                } catch (e) {
+                    if (e.response && e.response.status && e.response.status == 401) {
+                        console.log(`Invalid authorization credentials - exiting.`);
+                        process.exit(1);
+                    }
                 }
-            });
-
-            let tmp = response.headers['set-cookie'][0].split(';');
-            let auth: string = tmp[0];
-            auth = auth.substring(5) + ';';
-            this.token = auth;
-
-            this.refreshToken = response.data.config2;
-        } catch (e) {
-            if (e.response && e.response.data && e.response.data.statusCode == 403) {
-                console.log(`Invalid authorization credentials - exiting.`);
-                process.exit(1);
-            }
-        }
+            }, (err, ret) => {
+                if (err) {
+                    retryCount += 1;
+                    if (retryCount > 5) {
+                        this.LogError('Error acquiring api login lock in RestAPILogin', err.stack, { error: err.toString() });
+                        reject();
+                    } else {
+                        setTimeout(() => { this.RestAPILogin(retryCount); }, 1000);
+                    }
+                } else {
+                    resolve();
+                }
+            }, {});
+        });
     }
 
 
-    async RefreshAPIToken() {
-        try {
-        let apiUrl = this.apiUrl;
+    async RefreshAPIToken(retryCount: number = 0) {
+        return new Promise(async (resolve, reject) => {
+            lock.acquire(lockRefreshToken, async () => {
+                try {
+                    if ((new Date().getTime() - this.tokenRefreshTime < 30000) && this.token)
+                        return;
 
-        const apiPort = this.apiPort;
+                    this.token = '';
 
-        if (apiPort != '')
-            apiUrl += `:${apiPort}`
-        const url = `${apiUrl}/login/refreshtoken`;
+                    let apiUrl = this.apiUrl;
 
-            const response = await axios({
-                url,
-                method: 'POST',
-                responseType: 'text',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Cookie: `Auth=${this.refreshToken};`
-                },
-                data: {
-                    'accessKeyId': this.accessKeyId,
-                    'accessKeySecret': this.accessKeySecret
+                    const apiPort = this.apiPort;
+
+                    if (apiPort != '')
+                        apiUrl += `:${apiPort}`
+                    const url = `${apiUrl}/login/refreshtoken`;
+
+                    const response = await axios({
+                        url,
+                        method: 'POST',
+                        responseType: 'text',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Cookie: `Auth=${this.refreshToken};`
+                        }
+                    });
+
+                    let tmp = response.headers['set-cookie'][0].split(';');
+                    let auth: string = tmp[0];
+                    auth = auth.substring(5) + ';';
+                    this.token = auth;
+                    this.tokenRefreshTime = new Date().getTime();
+
+                    this.refreshToken = response.data.config2;
+                } catch (err) {
+                    if (err.response && err.response.status && err.response.status == 401) {
+                        setImmediate(() => {  this.RestAPILogin(retryCount); });
+                    }
                 }
-            });
-
-            let tmp = response.headers['set-cookie'][0].split(';');
-            let auth: string = tmp[0];
-            auth = auth.substring(5) + ';';
-            this.token = auth;
-
-            this.refreshToken = response.data.config2;
-        } catch (err) {
-            if (err.response && err.response.data && err.response.data.statusCode == 403) {
-                await this.RestAPILogin();
-            }
-        }
+            }, (err, ret) => {
+                if (err) {
+                    retryCount += 1;
+                    if (retryCount > 5) {
+                        this.LogError('Error acquiring api login lock in RefreshAPIToken', err.stack, { error: err.toString() });
+                        reject();
+                    } else {
+                        setTimeout(() => {  this.RefreshAPIToken(retryCount); }, 1);
+                    }
+                } else {
+                    resolve();
+                }
+            }, {});
+        });
     }
 
 
@@ -496,13 +539,6 @@ export default class Agent {
                     headers: combinedHeaders,
                     data: data
                 });
-
-                if (response.headers['set-cookie'] && _.isArray(response.headers['set-cookie']) && response.headers['set-cookie'].length > 0) {
-                    let tmp = response.headers['set-cookie'][0].split(';');
-                    let auth: string = tmp[0];
-                    auth = auth.substring(5) + ';';
-                    this.token = auth;
-                }
 
                 resolve(response.data.data);
             } catch (e) {
@@ -1875,7 +1911,7 @@ export default class Agent {
     Update = async (params: any, msgKey: string, cb: any) => {
         try {
             await cb(true, msgKey);
-            await this.LogDebug('Update received', { msgKey, params });
+            // await this.LogDebug('Update received', { msgKey, params });
             if (this.updating) {
                 await this.LogWarning('Version update running - skipping this update', {});
                 return;
