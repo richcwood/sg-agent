@@ -489,7 +489,7 @@ export default class Agent {
                     this.refreshToken = response.data.config2;
                 } catch (err) {
                     if (err.response && err.response.status && err.response.status == 401) {
-                        setImmediate(() => {  this.RestAPILogin(retryCount); });
+                        setImmediate(() => { this.RestAPILogin(retryCount); });
                     }
                 }
             }, (err, ret) => {
@@ -499,7 +499,7 @@ export default class Agent {
                         this.LogError('Error acquiring api login lock in RefreshAPIToken', err.stack, { error: err.toString() });
                         reject();
                     } else {
-                        setTimeout(() => {  this.RefreshAPIToken(retryCount); }, 1);
+                        setTimeout(() => { this.RefreshAPIToken(retryCount); }, 1000);
                     }
                 } else {
                     resolve();
