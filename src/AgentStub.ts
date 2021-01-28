@@ -150,11 +150,7 @@ export default class AgentStub {
             }
         });
 
-        let tmp = response.headers['set-cookie'][0].split(';');
-        let auth: string = tmp[0];
-        auth = auth.substring(5) + ';';
-        this.params.token = auth;
-
+        this.params.token = response.data.config1;
         this.params.refreshToken = response.data.config2;
         this.params._teamId = response.data.config3;
     }
@@ -183,11 +179,7 @@ export default class AgentStub {
             }
         });
 
-        let tmp = response.headers['set-cookie'][0].split(';');
-        let auth: string = tmp[0];
-        auth = auth.substring(5) + ';';
-        this.params.token = auth;
-
+        this.params.token = response.data.config1;
         this.params.refreshToken = response.data.config2;
         this.params._teamId = response.data.config3;
     }

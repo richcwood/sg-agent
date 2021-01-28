@@ -423,12 +423,8 @@ export default class Agent {
                         }
                     });
 
-                    let tmp = response.headers['set-cookie'][0].split(';');
-                    let auth: string = tmp[0];
-                    auth = auth.substring(5) + ';';
-                    this.token = auth;
                     this.tokenRefreshTime = new Date().getTime();
-
+                    this.token = response.data.config1;
                     this.refreshToken = response.data.config2;
                 } catch (e) {
                     if (e.response && e.response.status && e.response.status == 401) {
@@ -480,12 +476,8 @@ export default class Agent {
                         }
                     });
 
-                    let tmp = response.headers['set-cookie'][0].split(';');
-                    let auth: string = tmp[0];
-                    auth = auth.substring(5) + ';';
-                    this.token = auth;
                     this.tokenRefreshTime = new Date().getTime();
-
+                    this.token = response.data.config1;
                     this.refreshToken = response.data.config2;
                 } catch (err) {
                     if (err.response && err.response.status && err.response.status == 401) {
