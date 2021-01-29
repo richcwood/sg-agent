@@ -21,7 +21,6 @@ process.on('unhandledRejection', (reason, p) => {
 ( async () => {
     try {
 
-        let _teamId = config.get('_teamId');
         let env = config.get('env');
         let apiUrl = config.get('apiUrl');
         let apiPort = config.get('apiPort');
@@ -33,7 +32,6 @@ process.on('unhandledRejection', (reason, p) => {
         }
 
         const params = {
-            _teamId: _teamId,
             env: env,
             apiUrl: apiUrl,
             apiPort: apiPort,
@@ -45,10 +43,13 @@ process.on('unhandledRejection', (reason, p) => {
         for (let i = 0; i < process.argv.length; i++) {
             if (process.argv[i] == '--LogDest') {
                 if (process.argv.length > i)
-                    params.logDest = process.argv[i+1];
+                    params.logDest = process.argv[i + 1];
             } else if (process.argv[i] == '--LogLevel') {
                 if (process.argv.length > i)
-                    params.logLevel = process.argv[i+1];
+                    params.logLevel = process.argv[i + 1];
+            } else if (process.argv[i] == '--TeamId') {
+                if (process.argv.length > i)
+                    params._teamId = process.argv[i + 1];
             }
         }
     

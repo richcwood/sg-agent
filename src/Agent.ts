@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.48';
+const version = 'v0.0.0.49';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -366,11 +366,7 @@ export default class Agent {
                 const response = await axios({
                     url: artifact.url,
                     method: 'GET',
-                    responseType: 'stream',
-                    headers: {
-                        Cookie: `Auth=${this.token};`,
-                        _teamId: this._teamId
-                    }
+                    responseType: 'stream'
                 });
 
                 const artifactSize = await new Promise(async (resolve, reject) => {
