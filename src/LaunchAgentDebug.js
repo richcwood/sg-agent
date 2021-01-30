@@ -15,7 +15,7 @@ const config = require('../node_modules/config');
 // console.log(`agent => require.main.filename => ${require.main.filename}`);
 
 process.on('unhandledRejection', (reason, p) => {
-    console.log(`Agent Unhandled Rejection - Promise: "${util.inspect(p, false, null)}", Reason: "${util.inspect(reason, false, null)}"`);
+    console.log(`Agent Launcher Unhandled Rejection - Reason: "${util.inspect(reason, false, null)}"`);
 });
 
 ( async () => {

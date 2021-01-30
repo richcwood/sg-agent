@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.49';
+const version = 'v0.0.0.50';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -793,7 +793,10 @@ export default class Agent {
         } catch (e) {
             if (!this.stopped) {
                 delete e.request;
-                this.LogError(`Error sending heartbeat`, '', {Error: e.message, Data: e.response.data});
+                const errorData = { Error: e.message };
+                if (e.response)
+                    errorData['Data'] = e.repsonse.data;
+                this.LogError(`Error sending heartbeat`, '', errorData);
                 if (!once)
                     setTimeout(() => { this.SendHeartbeat(); }, this.heartbeatInterval);
             }
