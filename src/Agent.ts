@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.50';
+const version = 'v0.0.0.51';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -38,7 +38,7 @@ const regexStdoutRedirectFiles = RegExp('(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)'
 
 let runningProcesses: any = {};
 
-const lock = new AsyncLock();
+const lock = new AsyncLock({timeout: 5000});
 const lockConnectStomp: string = 'lock_connect_stomp_key';
 const lockApiLogin: string = 'lock_api_login_key';
 const lockRefreshToken: string = 'lock_refresh_token_key';
@@ -391,6 +391,7 @@ export default class Agent {
 
     async RestAPILogin(retryCount: number = 0) {
         return new Promise(async (resolve, reject) => {
+            console.log('Waiting to aquire lockRefreshToken');
             lock.acquire(lockApiLogin, async () => {
                 try {
                     if ((new Date().getTime() - this.tokenRefreshTime < 30000) && this.token)
@@ -447,6 +448,7 @@ export default class Agent {
 
     async RefreshAPIToken(retryCount: number = 0) {
         return new Promise(async (resolve, reject) => {
+            console.log('Waiting to aquire lockRefreshToken');
             lock.acquire(lockRefreshToken, async () => {
                 try {
                     if ((new Date().getTime() - this.tokenRefreshTime < 30000) && this.token)
