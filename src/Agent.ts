@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.51';
+const version = 'v0.0.0.52';
 
 const userConfigPath: string = process.cwd() + '/sg.cfg';
 
@@ -390,8 +390,8 @@ export default class Agent {
 
 
     async RestAPILogin(retryCount: number = 0) {
-        return new Promise(async (resolve, reject) => {
-            console.log('Waiting to aquire lockRefreshToken');
+        return new Promise<void>(async (resolve, reject) => {
+            // console.log('Waiting to aquire lockRefreshToken');
             lock.acquire(lockApiLogin, async () => {
                 try {
                     if ((new Date().getTime() - this.tokenRefreshTime < 30000) && this.token)
@@ -406,6 +406,8 @@ export default class Agent {
                     if (apiPort != '')
                         apiUrl += `:${apiPort}`
                     const url = `${apiUrl}/login/apiLogin`;
+
+                    console.log(`accessKeyId -> ${this.accessKeyId}, accessKeySecret -> ${this.accessKeySecret}`);
 
                     const response = await axios({
                         url,
@@ -447,8 +449,8 @@ export default class Agent {
 
 
     async RefreshAPIToken(retryCount: number = 0) {
-        return new Promise(async (resolve, reject) => {
-            console.log('Waiting to aquire lockRefreshToken');
+        return new Promise<void>(async (resolve, reject) => {
+            // console.log('Waiting to aquire lockRefreshToken');
             lock.acquire(lockRefreshToken, async () => {
                 try {
                     if ((new Date().getTime() - this.tokenRefreshTime < 30000) && this.token)
@@ -2114,7 +2116,7 @@ export default class Agent {
 
                 cmd.stdout.on('data', (data) => {
                     try {
-                        this.LogDebug('GetCronTab on.stdout.data', { data: data.toString() });
+                        // this.LogDebug('GetCronTab on.stdout.data', { data: data.toString() });
                         stdout = data.toString();
                     } catch (e) {
                         this.LogError('Error handling stdout in GetCronTab', e.stack, { error: e.toString() });
