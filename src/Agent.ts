@@ -30,9 +30,9 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.53';
+const version = 'v0.0.0.54';
 
-const userConfigPath: string = process.cwd() + '/sg.cfg';
+const userConfigPath: string = path.join(process.cwd(), 'sg.cfg');
 
 const regexStdoutRedirectFiles = RegExp('(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)', 'g');
 
@@ -407,7 +407,7 @@ export default class Agent {
                         apiUrl += `:${apiPort}`
                     const url = `${apiUrl}/login/apiLogin`;
 
-                    console.log(`accessKeyId -> ${this.accessKeyId}, accessKeySecret -> ${this.accessKeySecret}`);
+                    // console.log(`accessKeyId -> ${this.accessKeyId}, accessKeySecret -> ${this.accessKeySecret}`);
 
                     const response = await axios({
                         url,

@@ -13,7 +13,7 @@ import * as _ from 'lodash';
 const waitForAgentCreateInterval = 15000;
 const waitForAgentCreateMaxRetries = 20;
 
-const userConfigPath: string = process.cwd() + '/sg.cfg';
+const userConfigPath: string = path.join(process.cwd(), 'sg.cfg');
 
 export default class AgentStub {
     public logLevel: any = LogLevel.WARNING;
