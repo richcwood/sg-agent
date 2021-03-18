@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.56';
+const version = 'v0.0.0.57';
 
 const userConfigPath: string = path.join(process.cwd(), 'sg.cfg');
 
