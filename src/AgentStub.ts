@@ -21,11 +21,16 @@ export default class AgentStub {
     private agentPath: string;
     private ipcPath: string;
     private logDest: string;
+    private env: string;
+    private appName: string;
     private machineId: string = undefined;
     private apiUrl: string = undefined;
+    private _teamId: string;
 
     constructor(private params: any) {
         this.apiUrl = params.apiUrl;
+        this.env = params.env;
+        this.appName = params.appName;
 
         this.logDest = 'file';
         if (params.hasOwnProperty('logDest'))
@@ -54,7 +59,7 @@ export default class AgentStub {
             process.exit(1);
         }
 
-        if (params.env == 'debug') {
+        if (this.env == 'debug') {
             if (userConfig.debug) {
                 if (userConfig.debug.machineId)
                     this.machineId = userConfig.debug.machineId;
@@ -68,7 +73,7 @@ export default class AgentStub {
     async Init() {
         await this.RestAPILogin();
 
-        this.logger = new AgentLogger(this.params, this.logLevel, process.cwd() + '/installer_logs', this.apiUrl, this.params.apiPort, this.params.agentLogsAPIVersion);
+        this.logger = new AgentLogger(this, this.logLevel, process.cwd() + '/installer_logs', this.apiUrl, this.params.apiPort, this.params.agentLogsAPIVersion);
         this.logger.Start();
 
         this.agentPath = path.dirname(process.argv[0]) + path.sep + 'sg-agent';
@@ -81,7 +86,7 @@ export default class AgentStub {
         this.ipcPath = `/tmp/app.${SGUtils.makeid(10)}.${ipc.config.id}`;
         ipc.config.retry = 1500;
         ipc.config.silent = true;
-        ipc.serve(this.ipcPath, () => ipc.server.on(`sg-agent-msg-${this.params._teamId}`, (message, socket) => {
+        ipc.serve(this.ipcPath, () => ipc.server.on(`sg-agent-msg-${this._teamId}`, (message, socket) => {
             const logMsg = 'Message from Agent';
             this.logger.LogDebug(logMsg, message);
             if (message.propertyOverrides) {
@@ -152,7 +157,7 @@ export default class AgentStub {
 
         this.params.token = response.data.config1;
         this.params.refreshToken = response.data.config2;
-        this.params._teamId = response.data.config3;
+        this._teamId = response.data.config3;
     }
 
 
@@ -181,7 +186,7 @@ export default class AgentStub {
 
         this.params.token = response.data.config1;
         this.params.refreshToken = response.data.config2;
-        this.params._teamId = response.data.config3;
+        this._teamId = response.data.config3;
     }
 
 
@@ -201,7 +206,7 @@ export default class AgentStub {
 
                 const combinedHeaders: any = Object.assign({
                     Cookie: `Auth=${this.params.token};`,
-                    _teamId: this.params._teamId
+                    _teamId: this._teamId
                 }, headers);
 
                 // console.log('RestAPICall -> url ', url, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.params.token);
@@ -319,7 +324,7 @@ export default class AgentStub {
                     if (this.params.agentArch != '')
                         url += `/${this.params.agentArch}`
 
-                    let agentDownloadUrl = await this.RestAPICall(url, 'GET', {_teamId: this.params._teamId}, null);
+                    let agentDownloadUrl = await this.RestAPICall(url, 'GET', {_teamId: this._teamId}, null);
                     this.logger.LogDebug(`Agent download url`, { url, agentDownloadUrl});
                     resolve(agentDownloadUrl);
                     break;
@@ -390,7 +395,7 @@ export default class AgentStub {
         try {
             let cmdString = this.agentPath;
             if (fs.existsSync(this.agentPath)) {
-                res = await this.RunCommand(cmdString, [this.ipcPath, '--LogDest', this.logDest, '--LogLevel', this.logLevel, '--TeamId', this.params._teamId]);
+                res = await this.RunCommand(cmdString, [this.ipcPath, '--LogDest', this.logDest, '--LogLevel', this.logLevel, '--TeamId', this._teamId]);
                 let logMsg: string;
                 if (res.code == 96) {
                     logMsg = 'Updating and restarting agent';
