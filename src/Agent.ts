@@ -184,12 +184,7 @@ export default class Agent {
         }
 
         this.ipcPath = process.argv[2];
-
-        this.logger = new AgentLogger(this.appName, this._teamId, this.logLevel, process.cwd() + '/logs', this.apiUrl, this.apiPort, this.agentLogsAPIVersion, this.RestAPICall, this.env, this.logDest, this.machineId);
-        this.logger.Start();
-
-        this.logger.LogDebug(`Starting Agent`, { tags: this.tags, propertyOverrides: this.UpdatePropertyOverrides, userConfigPath, env: this.env });
-}
+    }
 
 
     async CreateAgentInAPI() {
@@ -217,6 +212,14 @@ export default class Agent {
 
 
     async Init() {
+        if (!this._teamId)
+            await this.RestAPILogin();
+
+        this.logger = new AgentLogger(this, this.logLevel, process.cwd() + '/logs', this.apiUrl, this.apiPort, this.agentLogsAPIVersion);
+        this.logger.Start();
+
+        this.logger.LogDebug(`Starting Agent`, { tags: this.tags, propertyOverrides: this.UpdatePropertyOverrides, userConfigPath, env: this.env });
+
         let agentProperties: any = {};
         try {
             agentProperties = await this.RestAPICall(`agent/name/${this.MachineId()}`, 'GET', { _teamId: this._teamId }, null);
@@ -425,6 +428,7 @@ export default class Agent {
                     this.tokenRefreshTime = new Date().getTime();
                     this.token = response.data.config1;
                     this.refreshToken = response.data.config2;
+                    this._teamId = response.data.config3;
                 } catch (e) {
                     if (e.response && e.response.status && e.response.status == 401) {
                         console.log(`Invalid authorization credentials - exiting.`);

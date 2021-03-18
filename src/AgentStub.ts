@@ -68,7 +68,7 @@ export default class AgentStub {
     async Init() {
         await this.RestAPILogin();
 
-        this.logger = new AgentLogger(this.params.appName, this.params._teamId, this.logLevel, process.cwd() + '/installer_logs', this.apiUrl, this.params.apiPort, this.params.agentLogsAPIVersion, this.RestAPICall, this.params.env, this.logDest, this.machineId);
+        this.logger = new AgentLogger(this.params, this.logLevel, process.cwd() + '/installer_logs', this.apiUrl, this.params.apiPort, this.params.agentLogsAPIVersion);
         this.logger.Start();
 
         this.agentPath = path.dirname(process.argv[0]) + path.sep + 'sg-agent';

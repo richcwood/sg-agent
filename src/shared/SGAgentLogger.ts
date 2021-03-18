@@ -28,11 +28,11 @@ export class AgentLogger {
     public instanceId: string = '';
 
 
-    constructor(public appName: string, public teamId: string, public logLevel: LogLevel, public logsPath: string, public uploadURL: string, public uploadPort: string, public uploadAPIVersion: string, public restApiCall: any, public env: string, public logDest: string = 'file', public machineId: string = undefined) {
+    constructor(public agent: any, public logLevel: LogLevel, public logsPath: string, public uploadURL: string, public uploadPort: string, public uploadAPIVersion: string) {
         if (!fs.existsSync(this.logsPath))
             fs.mkdirSync(this.logsPath);
 
-        if (this.env == 'debug' || this.env == 'unittest') {
+        if (this.agent.env == 'debug' || this.agent.env == 'unittest') {
             this.cycleCacheInterval = 10000;  // 10 seconds
             this.maxLogFileUploadSize = 10240; // 10 KB (compresses about 10%)
             this.maxAggregateLogSize = 51200; // 50 KB
@@ -44,8 +44,8 @@ export class AgentLogger {
         if (logLevel < this.logLevel)
             return;
 
-        values = Object.assign({ _logLevel: logLevel, _appName: this.appName, _ipAddress: SGUtils.getIpAddress(), _sourceHost: (this.machineId ? this.machineId : os.hostname()), _timeStamp: new Date().toISOString() }, values);
-        if (this.logDest == 'console') {
+        values = Object.assign({ _logLevel: logLevel, _appName: this.agent.appName, _ipAddress: SGUtils.getIpAddress(), _sourceHost: (this.agent.machineId ? this.agent.machineId : os.hostname()), _timeStamp: new Date().toISOString() }, values);
+        if (this.agent.logDest == 'console') {
             console.log(JSON.stringify(values, null, 4));
         } else {
             this.WriteLogEntry(JSON.stringify(values));
@@ -64,19 +64,19 @@ export class AgentLogger {
     }
 
     async LogError(msg: string, stackTrace: string, values: any) {
-        await this.Log(Object.assign({ 'msg': msg, 'TeamId': this.teamId, 'AgentId': this.instanceId, 'StackTrace': stackTrace }, values), LogLevel.ERROR);
+        await this.Log(Object.assign({ 'msg': msg, 'TeamId': this.agent.teamId, 'AgentId': this.instanceId, 'StackTrace': stackTrace }, values), LogLevel.ERROR);
     }
 
     async LogWarning(msg: string, values: any) {
-        await this.Log(Object.assign({ 'msg': msg, 'TeamId': this.teamId, 'AgentId': this.instanceId }, values), LogLevel.WARNING);
+        await this.Log(Object.assign({ 'msg': msg, 'TeamId': this.agent.teamId, 'AgentId': this.instanceId }, values), LogLevel.WARNING);
     }
 
     async LogInfo(msg: string, values: any) {
-        await this.Log(Object.assign({ 'msg': msg, 'TeamId': this.teamId, 'AgentId': this.instanceId }, values), LogLevel.INFO);
+        await this.Log(Object.assign({ 'msg': msg, 'TeamId': this.agent.teamId, 'AgentId': this.instanceId }, values), LogLevel.INFO);
     }
 
     async LogDebug(msg: string, values: any) {
-        await this.Log(Object.assign({ 'msg': msg, 'TeamId': this.teamId, 'AgentId': this.instanceId }, values), LogLevel.DEBUG);
+        await this.Log(Object.assign({ 'msg': msg, 'TeamId': this.agent.teamId, 'AgentId': this.instanceId }, values), LogLevel.DEBUG);
     }
 
     CloseCacheFile() {
@@ -89,7 +89,7 @@ export class AgentLogger {
             fs.mkdirSync(this.logsPath);
 
         this.cacheFileCreateTime = new Date();
-        this.cacheFileName = `${this.appName}_${this.cacheFileCreateTime.toISOString().replace(/T/, '').replace(/-/g, '').replace(/:/g, '').substr(0, 14)}.log`;
+        this.cacheFileName = `${this.agent.appName}_${this.cacheFileCreateTime.toISOString().replace(/T/, '').replace(/-/g, '').replace(/:/g, '').substr(0, 14)}.log`;
         this.cacheFilePath = `${this.logsPath}/${this.cacheFileName}`;
         this.cacheFileSize = 0;
         this.cacheFileWriteStream = fs.createWriteStream(this.cacheFilePath, { flags: 'a' });
@@ -101,7 +101,7 @@ export class AgentLogger {
     }
 
     async Start() {
-        if (this.logDest == 'console')
+        if (this.agent.logDest == 'console')
             return;
         this.GenerateNewCacheFile();
         this.PruneLogFiles()
@@ -149,7 +149,7 @@ export class AgentLogger {
                 const files_extended = await files
                     .filter((fileName) => {
                         const filePath = `${this.logsPath}/${fileName}`;
-                        return (fileName.startsWith(this.appName)) && (filePath != this.cacheFilePath) && !(fs.statSync(filePath).isDirectory());
+                        return (fileName.startsWith(this.agent.appName)) && (filePath != this.cacheFilePath) && !(fs.statSync(filePath).isDirectory());
                     })
                     .map((fileName) => {
                         const filePath = `${this.logsPath}/${fileName}`;
@@ -242,7 +242,7 @@ export class AgentLogger {
             form.append('buffer', Buffer.alloc(10));
             form.append('logFile', file);
 
-            await this.restApiCall('agentlog', 'POST', {'Content-Type': 'multipart/form-data'}, form);
+            await this.agent.restApiCall('agentlog', 'POST', {'Content-Type': 'multipart/form-data'}, form);
         } catch (e) {
             success = false;
             this.LogError(`Error uploading log file`, '', {filePath, error: e});
