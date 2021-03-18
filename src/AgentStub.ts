@@ -18,6 +18,7 @@ const userConfigPath: string = path.join(process.cwd(), 'sg.cfg');
 export default class AgentStub {
     public logLevel: any = LogLevel.WARNING;
     private logger: AgentLogger;
+    private rootPath: string;
     private agentPath: string;
     private ipcPath: string;
     private logDest: string;
@@ -76,9 +77,11 @@ export default class AgentStub {
         this.logger = new AgentLogger(this, this.logLevel, process.cwd() + '/installer_logs', this.apiUrl, this.params.apiPort, this.params.agentLogsAPIVersion);
         this.logger.Start();
 
-        this.agentPath = path.dirname(process.argv[0]) + path.sep + 'sg-agent';
-        this.agentPath = this.agentPath.replace('//', '/');
-        this.agentPath = this.agentPath.replace('\\\\', '\\');
+        this.rootPath = path.dirname(process.argv[0]) + path.sep;
+        this.rootPath = this.rootPath.replace('//', '/');
+        this.rootPath = this.rootPath.replace('\\\\', '\\');
+
+        this.agentPath = this.rootPath + '_sg-sub-proc';
         if (process.platform.startsWith('win'))
             this.agentPath += '.exe';
 
@@ -354,7 +357,8 @@ export default class AgentStub {
     async DownloadAgent() {
         const agentS3URL: string = <string>await this.DownloadAgent_GetUrl();
 
-        const agentPathCompressed = this.agentPath + '.gz';
+        const agentPathUncompressed = this.rootPath + "sg-agent";
+        const agentPathCompressed = agentPathUncompressed + ".gz";
         const writer = fs.createWriteStream(agentPathCompressed);
 
         const response = await axios({
@@ -369,7 +373,7 @@ export default class AgentStub {
             writer.on('finish', async () => {
                 await SGUtils.GunzipFile(agentPathCompressed);
                 await new Promise(async (resolve, reject) => {
-                    fs.chmod(this.agentPath, 0o0755, ((err) => {
+                    fs.chmod(agentPathUncompressed, 0o0755, ((err) => {
                         if (err) {
                             reject(err);
                             return;
@@ -381,6 +385,8 @@ export default class AgentStub {
 
                 if (fs.existsSync(agentPathCompressed))
                     fs.unlinkSync(agentPathCompressed);
+
+                fs.renameSync(agentPathUncompressed, this.agentPath);
 
                 resolve();
                 return;
