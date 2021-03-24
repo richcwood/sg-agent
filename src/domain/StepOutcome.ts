@@ -49,13 +49,13 @@ export class StepOutcomeSchema {
 
     archived?: boolean;
 
-    sgcDuration?: string;
+    lambdaDuration?: string;
 
-    sgcBilledDuration?: string;
+    lambdaBilledDuration?: string;
 
-    sgcMemSize?: string;
+    lambdaMemSize?: string;
 
-    sgcMaxMemUsed?: string;
+    lambdaMaxMemUsed?: string;
 
-    sgcInitDuration?: string;
+    lambdaInitDuration?: string;
 };

@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.57';
+const version = 'v0.0.0.58';
 
 const userConfigPath: string = path.join(process.cwd(), 'sg.cfg');
 
@@ -1091,23 +1091,23 @@ export default class Agent {
                             const elem: string = elems[j];
                             if (elem.startsWith('Duration: ')) {
                                 try {
-                                    params.sgcDuration = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
+                                    params.lambdaDuration = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
                                 } catch (err) {}
                             } else if (elem.startsWith('Billed Duration: ')) {
                                 try {
-                                    params.sgcBilledDuration = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
+                                    params.lambdaBilledDuration = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
                                 } catch (err) {}        
                             } else if (elem.startsWith('Memory Size: ')) {
                                 try {
-                                    params.sgcMemSize = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
+                                    params.lambdaMemSize = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
                                 } catch (err) {}        
                             } else if (elem.startsWith('Max Memory Used: ')) {
                                 try {
-                                    params.sgcMaxMemUsed = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
+                                    params.lambdaMaxMemUsed = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
                                 } catch (err) {}        
                             } else if (elem.startsWith('Init Duration: ')) {
                                 try {
-                                    params.sgcInitDuration = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
+                                    params.lambdaInitDuration = Number(elem.split(':').slice(1,3).join(' ').trim().split(' ')[0]);
                                 } catch (err) { }
                             }
                         }
@@ -1186,12 +1186,12 @@ export default class Agent {
                 let stdoutTruncated: boolean = false;
                 let _teamId: string = step._teamId;
                 let runLambdaFinished: boolean = false;
-                let sgcDuration: string = undefined;
-                let sgcBilledDuration: string = undefined;
-                let sgcMemSize: string = undefined;
-                let sgcMaxMemUsed: string = undefined;
-                let sgcInitDuration: string = undefined;
-                let runParams: any = { queueTail, procFinished, taskOutcomeId, appInst, rtvCumulative, lastXLines, stdoutTruncated, stdoutBytesProcessed, updateId, stepOutcomeId, stdoutAnalysisFinished, _teamId, runLambdaFinished, sgcDuration, sgcBilledDuration, sgcMemSize, sgcMaxMemUsed, sgcInitDuration };
+                let lambdaDuration: string = undefined;
+                let lambdaBilledDuration: string = undefined;
+                let lambdaMemSize: string = undefined;
+                let lambdaMaxMemUsed: string = undefined;
+                let lambdaInitDuration: string = undefined;
+                let runParams: any = { queueTail, procFinished, taskOutcomeId, appInst, rtvCumulative, lastXLines, stdoutTruncated, stdoutBytesProcessed, updateId, stepOutcomeId, stdoutAnalysisFinished, _teamId, runLambdaFinished, lambdaDuration, lambdaBilledDuration, lambdaMemSize, lambdaMaxMemUsed, lambdaInitDuration };
 
                 const stdoutFileName = workingDirectory + path.sep + SGUtils.makeid(10) + '.out';
                 const out = fs.openSync(stdoutFileName, 'w');
@@ -1200,7 +1200,7 @@ export default class Agent {
                 let zipFilePath: string = '';
                 let handler: string = '';
                 if (!(step.lambdaZipfile)) {
-                    let msg: string = `${new Date().toISOString()} Creating saas glue compute function\n`;
+                    let msg: string = `${new Date().toISOString()} Creating AWS Lambda function\n`;
                     runParams.lastXLines.push(msg);
                     const updates: any = { _teamId: runParams._teamId, tail: runParams.lastXLines, stdout: msg, status: Enums.StepStatus.RUNNING, lastUpdateId: runParams.updateId };
                     await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, 'PUT', null, updates);
@@ -1265,7 +1265,7 @@ export default class Agent {
                     try { if (fs.existsSync(zipFilePath)) fs.unlinkSync(zipFilePath); } catch (e) { }
                 }
 
-                let msg: string = `${new Date().toISOString()} Running saas glue compute function\n`;
+                let msg: string = `${new Date().toISOString()} Running AWS Lambda function\n`;
                 runParams.lastXLines.push(msg);
                 const updates: any = { _teamId: runParams._teamId, tail: runParams.lastXLines, stdout: msg, status: Enums.StepStatus.RUNNING, lastUpdateId: runParams.updateId };
                 await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, 'PUT', null, updates);
@@ -1344,7 +1344,7 @@ export default class Agent {
                 let runtimeVars: any = {};
                 Object.assign(runtimeVars, parseStdoutResult.runtimeVars)
 
-                let outParams: any = { sgcDuration: runParams.sgcDuration, sgcBilledDuration: runParams.sgcBilledDuration, sgcMemSize: runParams.sgcMemSize, sgcMaxMemUsed: runParams.sgcMaxMemUsed, sgcInitDuration: runParams.sgcInitDuration };
+                let outParams: any = { lambdaDuration: runParams.lambdaDuration, lambdaBilledDuration: runParams.lambdaBilledDuration, lambdaMemSize: runParams.lambdaMemSize, lambdaMaxMemUsed: runParams.lambdaMaxMemUsed, lambdaInitDuration: runParams.lambdaInitDuration };
                 let code;
                 if (error == '') {
                     code = 0;
@@ -1374,7 +1374,7 @@ export default class Agent {
             } catch (e) {
                 this.LogError('Error in RunStepAsync_Lambda', e.stack, { error: e.toString() });
                 await SGUtils.sleep(1000);
-                error += (e.message + '\n');
+                error += (e.toString() + '\n');
                 resolve({ 'status': Enums.StepStatus.FAILED, 'code': -1, 'route': 'fail', 'stderr': error, 'failureCode': TaskFailureCode.AGENT_EXEC_ERROR });
             }
         })
