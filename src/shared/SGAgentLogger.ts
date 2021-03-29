@@ -37,8 +37,24 @@ export class AgentLogger {
             this.cycleCacheInterval = 10000;  // 10 seconds
             this.maxLogFileUploadSize = 10240; // 10 KB (compresses about 10%)
             this.maxAggregateLogSize = 51200; // 50 KB
-
         }
+
+        this.CycleCacheFile();
+    }
+
+    async CycleCacheFile() {
+        this.lockCache.acquire(this.lockCacheKey, async () => {
+            this.readyToWrite = false;
+            const currentTime = +new Date();
+            if ((this.cacheFileSize > 0) && ((currentTime - +this.cacheFileCreateTime)) > this.cycleCacheInterval) {
+                this.CloseCacheFile();
+            } else {
+                this.readyToWrite = true;
+            }
+        }, (err, ret) => {
+            if (!this.agent.stopped)
+                setTimeout(() => { this.CycleCacheFile(); }, this.cycleCacheInterval);
+        }, {});
     }
 
     async Log(values: any, logLevel: LogLevel) {
