@@ -8,6 +8,7 @@ import * as mongodb from 'mongodb';
 import util = require('util');
 import * as compressing from 'compressing';
 import * as _ from 'lodash';
+import * as path from 'path';
 
 
 export class AgentLogger {
@@ -149,7 +150,7 @@ export class AgentLogger {
                 const files_extended = await files
                     .filter((fileName) => {
                         const filePath = `${this.logsPath}/${fileName}`;
-                        return (fileName.startsWith(this.agent.appName)) && (filePath != this.cacheFilePath) && !(fs.statSync(filePath).isDirectory());
+                        return (fileName.startsWith(this.agent.appName)) && (path.extname(filePath) == '.log' || path.extname(filePath) == '.gz') && (filePath != this.cacheFilePath) && !(fs.statSync(filePath).isDirectory());
                     })
                     .map((fileName) => {
                         const filePath = `${this.logsPath}/${fileName}`;
@@ -194,8 +195,8 @@ export class AgentLogger {
                         if (fs.existsSync(files_not_uploaded[i].path)) {
                             fs.unlinkSync(files_not_uploaded[i].path);
                             aggregateLogSize -= files_not_uploaded[i].size;
-                            const msg = `Max aggregate log size exceeded - deleting log file '${files_not_uploaded[i].path}'`;
-                            this.LogError(msg, 'PruneLogFiles', {});
+                            const msg = 'Max aggregate log size exceeded - deleting log file';
+                            this.LogError(msg, 'PruneLogFiles', { Path: files_not_uploaded[i].path });
                         }
                     }
                 }
@@ -225,27 +226,49 @@ export class AgentLogger {
     }
 
     async UploadLogFile(filePath: string, fileSize: number) {
+        if (!fs.existsSync(filePath)) {
+            return;
+        }
+
         let success: boolean = true;
         try {
-            if (fileSize > this.maxLogFileUploadSize)
-                fs.truncateSync(filePath, this.maxLogFileUploadSize);
-            const compressedFilePath = filePath.substr(0, filePath.lastIndexOf(".")) + ".gz";
-            await new Promise((resolve, reject) => {
-                compressing.gzip.compressFile(filePath, compressedFilePath)
-                    .then(() => { resolve(); })
-                    .catch((err) => { reject(err); })
-            });
+            let compressedFilePath: string = filePath;
+            let fileExtension: string = path.extname(filePath);
+            if (fileExtension == '.log') {
+                if (fileSize > this.maxLogFileUploadSize)
+                    fs.truncateSync(filePath, this.maxLogFileUploadSize);
+                compressedFilePath = filePath.substr(0, filePath.lastIndexOf(".")) + ".gz";
+                await new Promise((resolve, reject) => {
+                    compressing.gzip.compressFile(filePath, compressedFilePath)
+                        .then(() => { resolve(); })
+                        .catch((err) => { reject(err); })
+                });
+
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
+            }
 
             var file = fs.createReadStream(compressedFilePath);
+
+            const config = {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                }
+            };
 
             let form = new FormData();
             form.append('buffer', Buffer.alloc(10));
             form.append('logFile', file);
 
-            await this.agent.restApiCall('agentlog', 'POST', {'Content-Type': 'multipart/form-data'}, form);
+            await this.agent.RestAPICall('agentlog', 'POST', form.getHeaders(), form);
+
+            if (fs.existsSync(compressedFilePath)) {
+                fs.unlinkSync(compressedFilePath);
+            }
         } catch (e) {
             success = false;
-            this.LogError(`Error uploading log file`, '', {filePath, error: e});
+            this.LogError(`Error uploading log file`, e.stack, { filePath, error: e.message });
         }
 
         if (!success)
