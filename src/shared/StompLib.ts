@@ -113,7 +113,7 @@ export class StompConnector {
     }
 
     OnStompError = (err) => {
-        this.LogError(`Stomp error occurred: ${err}`, '', {});
+        this.LogError(`Stomp error occurred`, '', {error: err});
         this.connectedToStomp = false;
         this.fnOnDisconnect();
     };

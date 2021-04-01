@@ -30,9 +30,15 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.60';
+const version = 'v0.0.0.61';
 
-const userConfigPath: string = path.join(process.cwd(), 'sg.cfg');
+let configPath = process.cwd();
+if (process.platform.indexOf('win') == 0) {
+    if (configPath == 'C:\Windows\system32')
+        configPath = process.execPath;
+}
+
+const userConfigPath: string = path.join(configPath, 'sg.cfg');
 
 const regexStdoutRedirectFiles = RegExp('(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)', 'g');
 
@@ -158,7 +164,7 @@ export default class Agent {
             this.accessKeyId = this.userConfig.SG_ACCESS_KEY_ID;
 
         if (!this.accessKeyId) {
-            console.log(`Error starting the saas glue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
+            console.log(`Error starting the SaasGlue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
             process.exit(1);
         }
 
@@ -168,7 +174,7 @@ export default class Agent {
             this.accessKeySecret = this.userConfig.SG_ACCESS_KEY_SECRET;
 
         if (!this.accessKeySecret) {
-            console.log(`Error starting the saas glue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
+            console.log(`Error starting the SaasGlue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
             process.exit(1);
         }
 
