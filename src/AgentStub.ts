@@ -15,8 +15,8 @@ const waitForAgentCreateMaxRetries = 20;
 
 let configPath = process.cwd();
 if (process.platform.indexOf('win') == 0) {
-    if (configPath == 'C:\Windows\system32')
-        configPath = process.execPath;
+    if (configPath == 'C:\\Windows\\system32')
+        configPath = path.dirname(process.execPath);
 }
 
 const userConfigPath: string = path.join(configPath, 'sg.cfg');

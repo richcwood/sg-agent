@@ -30,12 +30,12 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.61';
+const version = 'v0.0.0.62';
 
 let configPath = process.cwd();
 if (process.platform.indexOf('win') == 0) {
-    if (configPath == 'C:\Windows\system32')
-        configPath = process.execPath;
+    if (configPath == 'C:\\Windows\\system32')
+        configPath = path.dirname(process.execPath);
 }
 
 const userConfigPath: string = path.join(configPath, 'sg.cfg');
