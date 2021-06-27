@@ -92,7 +92,7 @@ export default class Agent {
     private maxStdoutSize: number = 307200; // bytes
     private maxStderrSize: number = 51200; // bytes
     private numLinesInTail: number = 5;
-    private maxSizeLineInTail: number = 1024; //bytes
+    private maxSizeLineInTail: number = 10240; //bytes
     private sendUpdatesInterval: number = 10000;
     private queueCompleteMessages: any[] = [];
     private offline: boolean = false;
@@ -928,6 +928,7 @@ export default class Agent {
                         s.pause();
 
                         lineCount += 1;
+                        let rtv: any = {};
                         if (saveOutput && line) {
                             const strLenBytes = Buffer.byteLength(line, 'utf8');
                             bytesRead += strLenBytes;
@@ -942,6 +943,8 @@ export default class Agent {
                                     }
                                 }
 
+                                rtv = appInst.ExtractRuntimeVarsFromString(line);
+
                                 if (strLenBytes > appInst.maxSizeLineInTail)
                                     line = truncate(line, appInst.maxSizeLineInTail) + ' (truncated)';
                                 lastXLines.push(line);
@@ -950,7 +953,6 @@ export default class Agent {
                             }
                         }
 
-                        const rtv = appInst.ExtractRuntimeVarsFromString(line);
                         Object.assign(runtimeVars, rtv);
 
                         // resume the readstream
