@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.63';
+const version = 'v0.0.0.64';
 
 let configPath = process.cwd();
 if (process.platform.indexOf('win') == 0) {
@@ -928,7 +928,6 @@ export default class Agent {
                         s.pause();
 
                         lineCount += 1;
-                        let rtv: any = {};
                         if (saveOutput && line) {
                             const strLenBytes = Buffer.byteLength(line, 'utf8');
                             bytesRead += strLenBytes;
@@ -943,16 +942,16 @@ export default class Agent {
                                     }
                                 }
 
-                                rtv = appInst.ExtractRuntimeVarsFromString(line);
-
+                                let lineForTail = line;
                                 if (strLenBytes > appInst.maxSizeLineInTail)
-                                    line = truncate(line, appInst.maxSizeLineInTail) + ' (truncated)';
-                                lastXLines.push(line);
+                                    lineForTail = truncate(line, appInst.maxSizeLineInTail) + ' (truncated)';
+                                lastXLines.push(lineForTail);
                                 if (lastXLines.length > appInst.numLinesInTail)
                                     lastXLines.shift();
                             }
                         }
 
+                        const rtv = appInst.ExtractRuntimeVarsFromString(line);
                         Object.assign(runtimeVars, rtv);
 
                         // resume the readstream
