@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.62';
+const version = 'v0.0.0.63';
 
 let configPath = process.cwd();
 if (process.platform.indexOf('win') == 0) {
