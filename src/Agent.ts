@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.64';
+const version = 'v0.0.0.65';
 
 let configPath = process.cwd();
 if (process.platform.indexOf('win') == 0) {
@@ -228,7 +228,7 @@ export default class Agent {
 
         let agentProperties: any = {};
         try {
-            agentProperties = await this.RestAPICall(`agent/name/${this.MachineId()}`, 'GET', { _teamId: this._teamId }, null);
+            agentProperties = await this.RestAPICall(`agent/machineid/${this.MachineId()}`, 'GET', { _teamId: this._teamId }, null);
         } catch (err) {
             if (err.response.status == 404) {
                 this.logger.LogDebug(`Error getting agent properties`, { error: err.toString()});
@@ -882,7 +882,7 @@ export default class Agent {
 
     ExtractRuntimeVarsFromString(line: string) {
         let runtimeVars: any = {};
-        let arrParams: string[] = line.match(/@sgo?(\{[^}]*\})/g);
+        let arrParams: string[] = line.match(/@sgo?(\{[^}]*\})/gi);
         if (arrParams) {
             for (let i = 0; i < arrParams.length; i++) {
                 try {
@@ -1729,7 +1729,7 @@ export default class Agent {
                 step.script.code = SGUtils.btoa_(newScript);
 
                 newScript = SGUtils.atob(step.script.code);
-                let arrInjectVarsScript: string[] = newScript.match(/@sgg?(\([^)]*\))/g);
+                let arrInjectVarsScript: string[] = newScript.match(/@sgg?(\([^)]*\))/gi);
                 if (arrInjectVarsScript) {
                     // replace runtime variables in script
                     for (let i = 0; i < arrInjectVarsScript.length; i++) {
@@ -1755,7 +1755,7 @@ export default class Agent {
                 }
 
                 let newArgs: string = step.arguments;
-                let arrInjectVarsArgs: string[] = newArgs.match(/@sgg?(\([^)]*\))/g);
+                let arrInjectVarsArgs: string[] = newArgs.match(/@sgg?(\([^)]*\))/gi);
                 if (arrInjectVarsArgs) {
                     // replace runtime variables in arguments
                     for (let i = 0; i < arrInjectVarsArgs.length; i++) {
