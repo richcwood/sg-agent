@@ -13,13 +13,7 @@ import * as _ from 'lodash';
 const waitForAgentCreateInterval = 15000;
 const waitForAgentCreateMaxRetries = 20;
 
-let configPath = process.cwd();
-if (process.platform.indexOf('win') == 0) {
-    if (configPath == 'C:\\Windows\\system32')
-        configPath = path.dirname(process.execPath);
-}
-
-const userConfigPath: string = path.join(configPath, 'sg.cfg');
+const userConfigPath: string = SGUtils.getConfigFilePath();
 
 export default class AgentStub {
     public logLevel: any = LogLevel.WARNING;

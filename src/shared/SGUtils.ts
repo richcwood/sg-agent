@@ -81,6 +81,24 @@ export class SGUtils {
         return newScript;
     }
 
+    static getConfigFilePath() {
+        let configPath = process.cwd();
+        if (process.platform.indexOf('win') == 0) {
+            if (configPath == 'C:\\Windows\\system32')
+                configPath = path.dirname(process.execPath);
+        } else if ((process.platform.indexOf('darwin') >= 0) || (process.platform.indexOf('linux') >= 0)) {
+            if (!fs.existsSync(path.join(configPath, 'sg.cfg'))) {
+                const daemonConfigPath = path.join(os.homedir(), '.saasglue');
+                if (fs.existsSync(path.join(daemonConfigPath, 'sg.cfg'))) {
+                    configPath = daemonConfigPath;
+                }
+            }
+        }
+
+        return path.join(configPath, "sg.cfg");
+    }
+
+    
     static getIpAddress() {
         let arrIPAddresses = [];
         let ifaces = os.networkInterfaces();
@@ -100,8 +118,6 @@ export class SGUtils {
             return 'missing';
         return arrIPAddresses.toString();
     };
-
-
 
     
     static async RunCommand(commandString: any, options: any) {

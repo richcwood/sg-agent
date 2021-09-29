@@ -32,13 +32,9 @@ import * as AsyncLock from 'async-lock';
 
 const version = 'v0.0.0.65';
 
-let configPath = process.cwd();
-if (process.platform.indexOf('win') == 0) {
-    if (configPath == 'C:\\Windows\\system32')
-        configPath = path.dirname(process.execPath);
-}
+const userConfigPath: string = SGUtils.getConfigFilePath();
 
-const userConfigPath: string = path.join(configPath, 'sg.cfg');
+console.log('userConfigPath -> ', userConfigPath);
 
 const regexStdoutRedirectFiles = RegExp('(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)', 'g');
 
