@@ -86,9 +86,16 @@ export class SGUtils {
         if (process.platform.indexOf('win') == 0) {
             if (configPath == 'C:\\Windows\\system32')
                 configPath = path.dirname(process.execPath);
-        } else if ((process.platform.indexOf('darwin') >= 0) || (process.platform.indexOf('linux') >= 0)) {
+        } else if (process.platform.indexOf('darwin') >= 0) {
             if (!fs.existsSync(path.join(configPath, 'sg.cfg'))) {
                 const daemonConfigPath = path.join(os.homedir(), '.saasglue');
+                if (fs.existsSync(path.join(daemonConfigPath, 'sg.cfg'))) {
+                    configPath = daemonConfigPath;
+                }
+            }
+        } else if (process.platform.indexOf('linux') >= 0) {
+            if (!fs.existsSync(path.join(configPath, 'sg.cfg'))) {
+                const daemonConfigPath = '/etc/saasglue';
                 if (fs.existsSync(path.join(daemonConfigPath, 'sg.cfg'))) {
                     configPath = daemonConfigPath;
                 }
