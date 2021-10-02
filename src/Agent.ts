@@ -30,11 +30,9 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.67';
+const version = 'v0.0.0.68';
 
 const userConfigPath: string = SGUtils.getConfigFilePath();
-
-console.log('userConfigPath -> ', userConfigPath);
 
 const regexStdoutRedirectFiles = RegExp('(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)', 'g');
 

@@ -40,13 +40,14 @@ export default class AgentStub {
             this.logLevel = parseInt(params['logLevel']);
 
         const userConfig: any = this.getUserConfigValues();
+        console.log('AgentStub -> userConfig -> ', userConfig);
         if (process.env.SG_ACCESS_KEY_ID)
             params.accessKeyId = process.env.SG_ACCESS_KEY_ID;
         if (userConfig.SG_ACCESS_KEY_ID)
             params.accessKeyId = userConfig.SG_ACCESS_KEY_ID;
 
         if (!params.accessKeyId) {
-            console.log(`Error starting the SaasGlue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
+            console.log(`Error starting the SaasGlue agent launcher - authorization id credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
             process.exit(1);
         }
     
@@ -56,7 +57,7 @@ export default class AgentStub {
             params.accessKeySecret = userConfig.SG_ACCESS_KEY_SECRET;
 
         if (!params.accessKeySecret) {
-            console.log(`Error starting the SaasGlue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
+            console.log(`Error starting the SaasGlue agent launcher - authorization secret credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
             process.exit(1);
         }
 
@@ -256,6 +257,8 @@ export default class AgentStub {
                 // let cron: any;
                 // if ((process.platform.indexOf('darwin') >= 0) || (process.platform.indexOf('linux') >= 0))
                 //     cron = await this.RunCommand('crontab -l', []);
+
+                console.log('Starting AgentStub');
 
                 if (!fs.existsSync(this.agentPath)) {
                     await this.DownloadAgent();
