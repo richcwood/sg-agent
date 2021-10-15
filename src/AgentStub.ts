@@ -402,7 +402,7 @@ export default class AgentStub {
     async RunAgent() {
         let res;
         try {
-            let cmdString = this.agentPath;
+            let cmdString = `"${this.agentPath}"`;
             if (fs.existsSync(this.agentPath)) {
                 res = await this.RunCommand(cmdString, [this.ipcPath, '--LogDest', this.logDest, '--LogLevel', this.logLevel, '--TeamId', this._teamId]);
                 let logMsg: string;
