@@ -40,7 +40,6 @@ export default class AgentStub {
             this.logLevel = parseInt(params['logLevel']);
 
         const userConfig: any = this.getUserConfigValues();
-        console.log('AgentStub -> userConfig -> ', userConfig);
         if (process.env.SG_ACCESS_KEY_ID)
             params.accessKeyId = process.env.SG_ACCESS_KEY_ID;
         if (userConfig.SG_ACCESS_KEY_ID)
