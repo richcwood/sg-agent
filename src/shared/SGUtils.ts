@@ -498,28 +498,47 @@ end
 
 
     static CreateAWSLambda = async (teamId: string, jobId: string, lambdaRole: string, lambdaFnName: string, code: any, runtime: string, memorySize: number, timeout: number, awsRegion: string, handler: string) => {
-        return new Promise( async (resolve, reject) => {
+        return new Promise(async (resolve, reject) => {
             var params: any = {
-                Description: `Lambda function ${lambdaFnName}`, 
-                FunctionName: lambdaFnName, 
-                Handler: handler, 
-                MemorySize: memorySize, 
-                Publish: true, 
-                Role: lambdaRole, 
-                Runtime: runtime, 
+                Description: `Lambda function ${lambdaFnName}`,
+                FunctionName: lambdaFnName,
+                Handler: handler,
+                MemorySize: memorySize,
+                Publish: true,
+                Role: lambdaRole,
+                Runtime: runtime,
                 Tags: {
                     "TeamId": teamId,
                     "JobId": jobId
-                }, 
+                },
                 Timeout: timeout,
                 Code: code
             };
 
             AWS.config.region = awsRegion;
-            
-            const lambda = new AWS.Lambda({maxRetries: 0});
-            lambda.createFunction(params, function(err, data) {
+
+            const lambda = new AWS.Lambda({ maxRetries: 10 });
+            lambda.createFunction(params, async function (err, data) {
                 if (err) reject(err);
+                const maxTries = 10;
+                let tryCount = 0;
+                while (true) {
+                    tryCount += 1;
+                    let lambdaFn = await new Promise(async (resolve, reject) => {
+                        lambda.getFunction({ FunctionName: lambdaFnName }, function (e, d) {
+                            if (e) reject(e);
+                            resolve(d);
+                        });
+                    });
+                    if (lambdaFn['Configuration']['State'] == 'Active') {
+                        break;
+                    } else if (tryCount < maxTries) {
+                        await SGUtils.sleep(5000);
+                    } else {
+                        reject('Timeout waiting for lambda function to be active');
+                        break;
+                    }
+                }
                 resolve(data);
             });
         });

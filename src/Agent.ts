@@ -152,20 +152,24 @@ export default class Agent {
 
         this.userConfig = this.getUserConfigValues();
 
-        if (process.env.SG_ACCESS_KEY_ID)
-            this.accessKeyId = process.env.SG_ACCESS_KEY_ID;
-        if (this.userConfig.SG_ACCESS_KEY_ID)
-            this.accessKeyId = this.userConfig.SG_ACCESS_KEY_ID;
+        if (!this.accessKeyId) {
+            if (process.env.SG_ACCESS_KEY_ID)
+                this.accessKeyId = process.env.SG_ACCESS_KEY_ID;
+            if (this.userConfig.SG_ACCESS_KEY_ID)
+                this.accessKeyId = this.userConfig.SG_ACCESS_KEY_ID;
+        }
 
         if (!this.accessKeyId) {
             console.log(`Error starting the SaasGlue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
             process.exit(1);
         }
 
-        if (process.env.SG_ACCESS_KEY_SECRET)
-            this.accessKeySecret = process.env.SG_ACCESS_KEY_SECRET;
-        if (this.userConfig.SG_ACCESS_KEY_SECRET)
-            this.accessKeySecret = this.userConfig.SG_ACCESS_KEY_SECRET;
+        if (!this.accessKeySecret) {
+            if (process.env.SG_ACCESS_KEY_SECRET)
+                this.accessKeySecret = process.env.SG_ACCESS_KEY_SECRET;
+            if (this.userConfig.SG_ACCESS_KEY_SECRET)
+                this.accessKeySecret = this.userConfig.SG_ACCESS_KEY_SECRET;
+        }
 
         if (!this.accessKeySecret) {
             console.log(`Error starting the SaasGlue agent - authorization credentials missing. Install authorization credentials in the sg.cfg file or as an environment variable. See saasglue.com for details.`);
@@ -409,8 +413,6 @@ export default class Agent {
                     if (apiPort != '')
                         apiUrl += `:${apiPort}`
                     const url = `${apiUrl}/login/apiLogin`;
-
-                    // console.log(`accessKeyId -> ${this.accessKeyId}, accessKeySecret -> ${this.accessKeySecret}`);
 
                     const response = await axios({
                         url,
@@ -825,7 +827,8 @@ export default class Agent {
                         let runtimeVars: any = {};
                         if (this.inactiveAgentJob.runtimeVars)
                             Object.assign(runtimeVars, this.inactiveAgentJob.runtimeVars);
-                        runtimeVars._agentId = this.InstanceId();
+                        runtimeVars._agentId = {};
+                        runtimeVars._agentId['value'] = this.InstanceId();
 
                         let data = {
                             name: `Inactive agent job - ${this.MachineId()}`,
@@ -875,36 +878,84 @@ export default class Agent {
     }
 
     ExtractRuntimeVarsFromString(line: string) {
+        function fnRtVar(k, v) {
+            let rtVar = {};
+            if (k.startsWith('<<') && k.endsWith('>>')) {
+                k = k.substring(2, k.length - 2);
+                rtVar[k] = {'sensitive': true};
+            } else if (k != 'route') {
+                rtVar[k] = {'sensitive': false};
+            } else {
+                rtVar[k] = {};
+            }
+            rtVar[k]['value'] = v;
+
+            return rtVar;
+        }
+
         let runtimeVars: any = {};
-        let arrParams: string[] = line.match(/@sgo?(\{[^}]*\})/gi);
+        let arrParams: string[] = line.match(/@sgo(\{[^}]*\})/gi);
         if (arrParams) {
             for (let i = 0; i < arrParams.length; i++) {
+                let rtVar;
+                let rawValue;
                 try {
-                    runtimeVars = Object.assign(runtimeVars, JSON.parse(arrParams[i].substring(4)));
+                    const newValJson = arrParams[i].substring(4);
+                    const newVal = JSON.parse(newValJson);
+                    let [key, value] = Object.entries(newVal)[0];
+                    rawValue = value;
+                    rtVar = fnRtVar(key, value);
+                    runtimeVars = Object.assign(runtimeVars, rtVar);
                 } catch (e) {
                     try {
                         if (e.message.indexOf('Unexpected token \\') >= 0) {
-                            let newVal = arrParams[i].substring(4).replace(/\\+"/g, '"');
-                            runtimeVars = Object.assign(runtimeVars, JSON.parse(newVal));
+                            const newValJson = arrParams[i].substring(4).replace(/\\+"/g, '"');
+                            const newVal = JSON.parse(newValJson);
+                            let [key, value] = Object.entries(newVal)[0];
+                            rawValue = value;
+                            rtVar = fnRtVar(key, value);
+                            runtimeVars = Object.assign(runtimeVars, rtVar);
                         } else {
                             const re = /{['"]?([\w-]+)['"]?:[ '"]+([^,'"]+)['"]}/g;
                             const s = arrParams[i].substring(4);
                             let m;
                             while ((m = re.exec(s)) != null) {
-                                const key = m[1].trim();
+                                let key = m[1].trim();
                                 const val = m[2].trim();
-                                runtimeVars[key] = val;
+                                rawValue = val;
+                                rtVar = fnRtVar(key, val);
+                                runtimeVars = Object.assign(runtimeVars, rtVar);
                             }
                         }
                     } catch (se) { }
                 }
+
+                let [key, value] = Object.entries(rtVar)[0];
+                if (value['sensitive']) {
+                    const newVal = arrParams[i].replace(rawValue, `**${key}**`);
+                    line = line.replace(arrParams[i], newVal);
+                }
             }
         }
 
-        return runtimeVars;
+        return [runtimeVars, line];
     }
 
-    async ParseScriptStdout(filePath: string, saveOutput: boolean, stdoutBytesAlreadyProcessed: number = 0, stdoutTruncated: boolean = false) {
+    ReplaceSensitiveRuntimeVarValuesInString(line: string, rtVars: any) {
+        let newLine: string = line;
+        const keys = Object.keys(rtVars);
+        for (let i = 0; i < keys.length; ++i) {
+            const k = keys[i];
+            const v = rtVars[k];
+            if (v['sensitive']) {
+                newLine = newLine.replace(RegExp(v['value'], 'g'), `**${k}**`);
+            }
+        }
+
+        return newLine;
+    }
+
+    async ParseScriptStdout(filePath: string, task: any, saveOutput: boolean, stdoutBytesAlreadyProcessed: number = 0, stdoutTruncated: boolean = false) {
         let appInst = this;
         return new Promise((resolve, reject) => {
             try {
@@ -922,13 +973,18 @@ export default class Agent {
                         s.pause();
 
                         lineCount += 1;
-                        if (saveOutput && line) {
-                            const strLenBytes = Buffer.byteLength(line, 'utf8');
+
+                        let [rtv, newLine] = appInst.ExtractRuntimeVarsFromString(line);
+                        Object.assign(runtimeVars, rtv);
+
+                        if (saveOutput && newLine) {
+                            newLine = appInst.ReplaceSensitiveRuntimeVarValuesInString(newLine, task.runtimeVars);
+                            const strLenBytes = Buffer.byteLength(newLine, 'utf8');
                             bytesRead += strLenBytes;
                             if (bytesRead > stdoutBytesAlreadyProcessed) {
                                 if (!stdoutTruncated) {
                                     if (strLenBytes + stdoutBytesAlreadyProcessed < appInst.maxStdoutSize) {
-                                        output += `${line}\n`;
+                                        output += `${newLine}\n`;
                                         stdoutBytesAlreadyProcessed += strLenBytes;
                                     } else {
                                         output = truncate(output, appInst.maxStdoutSize) + '\n(truncated)\n';
@@ -936,17 +992,14 @@ export default class Agent {
                                     }
                                 }
 
-                                let lineForTail = line;
+                                let lineForTail = newLine;
                                 if (strLenBytes > appInst.maxSizeLineInTail)
-                                    lineForTail = truncate(line, appInst.maxSizeLineInTail) + ' (truncated)';
+                                    lineForTail = truncate(newLine, appInst.maxSizeLineInTail) + ' (truncated)';
                                 lastXLines.push(lineForTail);
                                 if (lastXLines.length > appInst.numLinesInTail)
                                     lastXLines.shift();
                             }
                         }
-
-                        const rtv = appInst.ExtractRuntimeVarsFromString(line);
-                        Object.assign(runtimeVars, rtv);
 
                         // resume the readstream
                         s.resume();
@@ -966,7 +1019,7 @@ export default class Agent {
         });
     }
 
-    async ParseScriptStderr(filePath: string) {
+    async ParseScriptStderr(filePath: string, task: any) {
         let appInst = this;
         return new Promise((resolve, reject) => {
             try {
@@ -982,6 +1035,7 @@ export default class Agent {
 
                         lineCount += 1;
                         if (line) {
+                            line = appInst.ReplaceSensitiveRuntimeVarValuesInString(line, task.runtimeVars);
                             if (Buffer.byteLength(output, 'utf8') < appInst.maxStderrSize) {
                                 output += `${line}\n`;
                                 if (Buffer.byteLength(output, 'utf8') > appInst.maxStderrSize)
@@ -1014,10 +1068,10 @@ export default class Agent {
         let cpuTemperature = await sysinfo.cpuTemperature();
         let currentLoad = await sysinfo.currentLoad();
         let fsSize = await sysinfo.fsSize();
-        let networkConnections = await sysinfo.networkConnections();
-        let users = await sysinfo.users();
+        // let networkConnections = await sysinfo.networkConnections();
+        // let users = await sysinfo.users();
         let mem = await sysinfo.mem();
-        let battery = await sysinfo.battery();
+        // let battery = await sysinfo.battery();
         let inetLatency = await sysinfo.inetLatency();
         let networkStats = await sysinfo.networkStats();
 
@@ -1039,9 +1093,9 @@ export default class Agent {
             { inetLatency: inetLatency },
             { networkStats: networkStats },
             { processes: procs },
-            { networkConnections: networkConnections },
-            { users: users },
-            { battery: battery }
+            // { networkConnections: networkConnections },
+            // { users: users },
+            // { battery: battery }
         );
 
         if (fsStats)
@@ -1074,7 +1128,7 @@ export default class Agent {
             try {
                 let dataStrings: string[] = data.map((m) => m.message);
                 let dataAsString = dataStrings.join('');
-                const rtv = params.appInst.ExtractRuntimeVarsFromString(dataAsString);
+                const [rtv, newLine] = params.appInst.ExtractRuntimeVarsFromString(dataAsString);
                 let rtvUpdates = {};
                 for (let indexRTV = 0; indexRTV < Object.keys(rtv).length; indexRTV++) {
                     let key = Object.keys(rtv)[indexRTV];
@@ -1123,7 +1177,7 @@ export default class Agent {
                 params.lastXLines = params.lastXLines.concat(dataStrings).slice(-params.appInst.numLinesInTail);
                 for (let i = 0; i < params.lastXLines.length; i++) {
                     if (Buffer.byteLength(params.lastXLines[i], 'utf8') > params.appInst.maxSizeLineInTail)
-                    params.lastXLines[i] = truncate(params.lastXLines[i], params.appInst.maxSizeLineInTail) + ' (truncated)';
+                        params.lastXLines[i] = truncate(params.lastXLines[i], params.appInst.maxSizeLineInTail) + ' (truncated)';
                 }
 
                 while (true) {
@@ -1335,7 +1389,7 @@ export default class Agent {
 
                 let parseStdoutResult: any = {};
                 if (fs.existsSync(stdoutFileName)) {
-                    parseStdoutResult = await this.ParseScriptStdout(stdoutFileName, true, runParams.stdoutBytesProcessed, runParams.stdoutTruncated);
+                    parseStdoutResult = await this.ParseScriptStdout(stdoutFileName, task, true, runParams.stdoutBytesProcessed, runParams.stdoutTruncated);
                     runParams.lastXLines = runParams.lastXLines.concat(parseStdoutResult.lastXLines).slice(-appInst.numLinesInTail);
                 } else {
                     parseStdoutResult.output = '';
@@ -1352,7 +1406,7 @@ export default class Agent {
                     outParams[SGStrings.status] = Enums.StepStatus.SUCCEEDED;
                 } else {
                     code = -1;
-                    runtimeVars['route'] = 'fail';
+                    runtimeVars['route'] = {'value': 'fail'};
                     outParams[SGStrings.status] = Enums.StepStatus.FAILED;
                     outParams['failureCode'] = Enums.TaskFailureCode.TASK_EXEC_ERROR;
                 }
@@ -1499,7 +1553,7 @@ export default class Agent {
 
                         let parseStdoutResult: any = {};
                         if (fs.existsSync(stdoutFileName)) {
-                            parseStdoutResult = await this.ParseScriptStdout(stdoutFileName, true, stdoutBytesProcessed, stdoutTruncated);
+                            parseStdoutResult = await this.ParseScriptStdout(stdoutFileName, task, true, stdoutBytesProcessed, stdoutTruncated);
                             lastXLines = lastXLines.concat(parseStdoutResult.lastXLines).slice(-appInst.numLinesInTail);
                         } else {
                             parseStdoutResult.output = '';
@@ -1508,7 +1562,7 @@ export default class Agent {
 
                         let parseStderrResult: any = {};
                         if (fs.existsSync(stderrFileName)) {
-                            parseStderrResult = await this.ParseScriptStderr(stderrFileName);
+                            parseStderrResult = await this.ParseScriptStderr(stderrFileName, task);
                         } else {
                             parseStderrResult.output = '';
                         }
@@ -1518,7 +1572,7 @@ export default class Agent {
                         while ((match = regexStdoutRedirectFiles.exec(step.arguments)) !== null) {
                             const fileName = match[1];
                             let parseResult: any = {};
-                            parseResult = await this.ParseScriptStdout(workingDirectory + path.sep + fileName, false);
+                            parseResult = await this.ParseScriptStdout(workingDirectory + path.sep + fileName, task, false);
                             Object.assign(runtimeVars, parseResult.runtimeVars)
                         }
 
@@ -1529,10 +1583,10 @@ export default class Agent {
                             outParams[SGStrings.status] = Enums.StepStatus.SUCCEEDED;
                         } else {
                             if (signal == 'SIGTERM' || signal == 'SIGINT' || this.mainProcessInterrupted) {
-                                runtimeVars['route'] = 'interrupt';
+                                runtimeVars['route'] = {'value': 'interrupt'};
                                 outParams[SGStrings.status] = Enums.StepStatus.INTERRUPTED;
                             } else {
-                                runtimeVars['route'] = 'fail';
+                                runtimeVars['route'] = {'value': 'fail'};
                                 outParams[SGStrings.status] = Enums.StepStatus.FAILED;
                                 outParams['failureCode'] = Enums.TaskFailureCode.TASK_EXEC_ERROR;
                             }
@@ -1575,7 +1629,7 @@ export default class Agent {
                     try {
                         let dataAsString = data.join('\n');
                         if (!(task.target & (TaskDefTarget.ALL_AGENTS | TaskDefTarget.ALL_AGENTS_WITH_TAGS))) {
-                            const rtv = appInst.ExtractRuntimeVarsFromString(dataAsString);
+                            const [rtv, newLine] = appInst.ExtractRuntimeVarsFromString(dataAsString);
                             let rtvUpdates = {};
                             for (let indexRTV = 0; indexRTV < Object.keys(rtv).length; indexRTV++) {
                                 let key = Object.keys(rtv)[indexRTV];
@@ -1595,6 +1649,7 @@ export default class Agent {
                         for (let i = 0; i < lastXLines.length; i++) {
                             if (Buffer.byteLength(lastXLines[i], 'utf8') > appInst.maxSizeLineInTail)
                                 lastXLines[i] = truncate(lastXLines[i], appInst.maxSizeLineInTail) + ' (truncated)';
+                            lastXLines[i] = appInst.ReplaceSensitiveRuntimeVarValuesInString(lastXLines[i], task.runtimeVars);
                         }
 
                         while (true) {
@@ -1607,6 +1662,7 @@ export default class Agent {
                                 const maxStdoutUploadSize: number = 51200;
                                 let stdoutBytesProcessedLocal: number = 0;
                                 for (let i = 0; i < data.length; i++) {
+                                    data[i] = appInst.ReplaceSensitiveRuntimeVarValuesInString(data[i], task.runtimeVars);
                                     const strLenBytes = Buffer.byteLength(data[i], 'utf8');
                                     if (stdoutBytesProcessed + strLenBytes > appInst.maxStdoutSize) {
                                         stdoutToUpload += '\n(max stdout size exceeded - results truncated)\n';
@@ -1713,7 +1769,7 @@ export default class Agent {
                     for (let e = 0; e < Object.keys(newEnv).length; e++) {
                         let eKey = Object.keys(newEnv)[e];
                         if (eKey in task.runtimeVars) {
-                            newEnv[eKey] = task.runtimeVars[eKey];
+                            newEnv[eKey] = task.runtimeVars[eKey]['value'];
                         }
                     }
                     step.variables = newEnv;
@@ -1733,7 +1789,7 @@ export default class Agent {
                             if (injectVarKey.substr(0, 1) === '"' && injectVarKey.substr(injectVarKey.length - 1, 1) === '"')
                                 injectVarKey = injectVarKey.slice(1, -1);
                             if (injectVarKey in task.runtimeVars) {
-                                let injectVarVal = task.runtimeVars[injectVarKey];
+                                let injectVarVal = task.runtimeVars[injectVarKey].value;
                                 newScript = newScript.replace(`${arrInjectVarsScript[i]}`, `${injectVarVal}`);
                                 found = true;
                             }
@@ -1759,7 +1815,7 @@ export default class Agent {
                             if (injectVarKey.substr(0, 1) === '"' && injectVarKey.substr(injectVarKey.length - 1, 1) === '"')
                                 injectVarKey = injectVarKey.slice(1, -1);
                             if (injectVarKey in task.runtimeVars) {
-                                let injectVarVal = task.runtimeVars[injectVarKey];
+                                let injectVarVal = task.runtimeVars[injectVarKey].value;
                                 if (injectVarVal) {
                                     newArgs = newArgs.replace(`${arrInjectVarsArgs[i]}`, `${injectVarVal}`);
                                     found = true;
@@ -1776,6 +1832,10 @@ export default class Agent {
                     step.arguments = newArgs;
                 }
 
+                let runCode: string = SGUtils.atob(step.script.code);
+                runCode = this.ReplaceSensitiveRuntimeVarValuesInString(runCode, task.runtimeVars);
+                runCode = SGUtils.btoa_(runCode);
+
                 let stepOutcome: any = {
                     _teamId: new mongodb.ObjectId(this._teamId),
                     _jobId: task._jobId,
@@ -1786,7 +1846,7 @@ export default class Agent {
                     source: task.source,
                     machineId: this.MachineId(),
                     ipAddress: this.ipAddress,
-                    runCode: step.script.code,
+                    runCode: runCode,
                     status: Enums.TaskStatus.RUNNING,
                     dateStarted: new Date().toISOString()
                 };
@@ -1967,7 +2027,7 @@ export default class Agent {
                     procToInterrupt.kill();
                     // console.log('Task interrupted');
                 } else {
-                    const runtimeVars: any = { 'route': 'interrupt' };
+                    const runtimeVars: any = { 'route': {'value': 'interrupt'} };
                     let taskOutcomeUpdate: any = {
                         status: Enums.TaskStatus.INTERRUPTED,
                         runtimeVars: runtimeVars
