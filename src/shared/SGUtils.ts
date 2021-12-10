@@ -497,7 +497,7 @@ end
     };
 
 
-    static CreateAWSLambda = async (teamId: string, jobId: string, lambdaRole: string, lambdaFnName: string, code: any, runtime: string, memorySize: number, timeout: number, awsRegion: string, handler: string) => {
+    static CreateAWSLambda = async (teamId: string, jobId: string, taskId: string, stepId: string, lambdaRole: string, lambdaFnName: string, code: any, runtime: string, memorySize: number, timeout: number, awsRegion: string, handler: string) => {
         return new Promise(async (resolve, reject) => {
             var params: any = {
                 Description: `Lambda function ${lambdaFnName}`,
@@ -510,6 +510,14 @@ end
                 Tags: {
                     "TeamId": teamId,
                     "JobId": jobId
+                },
+                Environment: {
+                    Variables: {
+                        'teamId': teamId,
+                        'jobId': jobId,
+                        'taskId': taskId,
+                        'stepId': stepId
+                    }
                 },
                 Timeout: timeout,
                 Code: code

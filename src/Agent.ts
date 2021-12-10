@@ -30,7 +30,7 @@ const mtz = require('moment-timezone');
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
 
-const version = 'v0.0.0.71';
+const version = 'v0.0.0.72';
 
 const userConfigPath: string = SGUtils.getConfigFilePath();
 
@@ -1314,7 +1314,7 @@ export default class Agent {
                     handler = step.lambdaFunctionHandler;
                 }
 
-                await SGUtils.CreateAWSLambda(task._teamId, task._jobId, step.lambdaRole, task.id, lambdaCode, step.lambdaRuntime, step.lambdaMemorySize, step.lambdaTimeout, step.lambdaAWSRegion, handler);
+                await SGUtils.CreateAWSLambda(task._teamId, task._jobId, task.id, step.id, step.lambdaRole, task.id, lambdaCode, step.lambdaRuntime, step.lambdaMemorySize, step.lambdaTimeout, step.lambdaAWSRegion, handler);
 
                 if (zipFilePath) {
                     try { if (fs.existsSync(zipFilePath)) fs.unlinkSync(zipFilePath); } catch (e) { }
@@ -1518,6 +1518,10 @@ export default class Agent {
                 if (step.variables)
                     env = Object.assign(env, step.variables);
                 env.sgAgentId = this.InstanceId();
+                env.teamId = task._teamId;
+                env.jobId = task._jobId;
+                env.taskId = task.id;
+                env.stepId = step.id;
 
                 let cmd = spawn(commandString, [], { stdio: ['ignore', out, err], shell: true, detached: false, env: env, cwd: workingDirectory });
     
