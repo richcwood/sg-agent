@@ -691,7 +691,7 @@ export default class Agent {
     };
 
     async ConnectIPC() {
-        return new Promise((resolve, reject) => {
+        return new Promise<void>((resolve, reject) => {
             try {
                 ipc.config.id = `sg-agent-proc-${this._teamId}`;
                 ipc.config.retry = 1000;
@@ -720,7 +720,7 @@ export default class Agent {
 
     async SendMessageToAgentStub(params) {
         if (!this.runStandAlone) {
-            return new Promise(async (resolve, reject) => {
+            return new Promise<void>(async (resolve, reject) => {
                 try {
                     this.LogDebug(`Sending message to agent launcher`, params);
                     await ipc.of.SGAgentLauncherProc.emit(`sg-agent-msg-${this._teamId}`, params);
@@ -1467,10 +1467,10 @@ export default class Agent {
                 fs.writeFileSync(scriptFileName, SGUtils.atob(script.code));
 
                 if (script.scriptType == Enums.ScriptType.SH) {
-                    await new Promise(async (resolve, reject) => {
+                    await new Promise<null | any>(async (resolve, reject) => {
                         fs.chmod(scriptFileName, 0o0755, ((err) => {
                             if (err) reject(err);
-                            resolve();
+                            resolve(null);
                         }));
                     });
                 }
@@ -2177,7 +2177,7 @@ export default class Agent {
     async GetCronTab() {
         const commandString: string = 'crontab -l';
         const args = [];
-        return new Promise((resolve, reject) => {
+        return new Promise<null | any>((resolve, reject) => {
             try {
                 let stdout: string = '';
                 // this.LogDebug('GetCronTab: ' + commandString + ' ' + args, {});
@@ -2189,7 +2189,7 @@ export default class Agent {
                         stdout = data.toString();
                     } catch (e) {
                         this.LogError('Error handling stdout in GetCronTab', e.stack, { error: e.toString() });
-                        resolve();
+                        resolve(null);
                     }
                 });
 
@@ -2198,12 +2198,12 @@ export default class Agent {
                         resolve({ 'code': code, 'stdout': stdout });
                     } catch (e) {
                         this.LogError('Error handling exit in GetCronTab', e.stack, { error: e.toString() });
-                        resolve();
+                        resolve(null);
                     }
                 });
             } catch (e) {
                 this.LogError(`GetCronTab error`, e.stack, { commandString, error: e.toString() });
-                resolve();
+                resolve(null);
             }
         })
     };

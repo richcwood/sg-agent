@@ -224,7 +224,7 @@ export class AgentLogger {
     }
 
     async UploadLogFiles(files: any) {
-        return new Promise(async (resolve, reject) => {
+        return new Promise<void>(async (resolve, reject) => {
             try {
                 for (let i = 0; i < files.length; i++) {
                     if (files[i].size < 1) {
@@ -254,7 +254,7 @@ export class AgentLogger {
                 if (fileSize > this.maxLogFileUploadSize)
                     fs.truncateSync(filePath, this.maxLogFileUploadSize);
                 compressedFilePath = filePath.substr(0, filePath.lastIndexOf(".")) + ".gz";
-                await new Promise((resolve, reject) => {
+                await new Promise<void>((resolve, reject) => {
                     compressing.gzip.compressFile(filePath, compressedFilePath)
                         .then(() => { resolve(); })
                         .catch((err) => { reject(err); })

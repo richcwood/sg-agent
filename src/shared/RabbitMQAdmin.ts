@@ -59,19 +59,19 @@ export class RabbitMQAdmin {
     }
 
     async getQueueDetails(queue: string) {
-        return new Promise((resolve, reject) => {
+        return new Promise<null | any>((resolve, reject) => {
             this.instance.get(`queues/${this.vhost}/${queue}`)
                 .then((response) => {
                     resolve(response);
                 })
                 .catch((err) => {
-                    resolve();
+                    resolve(null);
                 })
         });
     }
 
     async purgeQueue(queue: string) {
-        return new Promise((resolve, reject) => {
+        return new Promise<any>((resolve, reject) => {
             this.instance.delete(`queues/${this.vhost}/${queue}/contents`)
                 .then((response) => {
                     resolve(response.status);
@@ -83,7 +83,7 @@ export class RabbitMQAdmin {
     }
 
     async deleteQueue(queue: string) {
-        return new Promise((resolve, reject) => {
+        return new Promise<any>((resolve, reject) => {
             this.instance.delete(`queues/${this.vhost}/${queue}`)
                 .then((response) => {
                     resolve(response.status);

@@ -192,9 +192,9 @@ export class SGUtils {
 
     static GzipFile = async (filePath: string) => {
         const compressedFilePath = filePath + ".gz";
-        await new Promise((resolve, reject) => {
+        await new Promise<null | any>((resolve, reject) => {
             compressing.gzip.compressFile(filePath, compressedFilePath)
-                .then(() => { resolve(); })
+                .then(() => { resolve(null); })
                 .catch((err) => { reject(err); })
         });
 
@@ -204,7 +204,7 @@ export class SGUtils {
 
     static GunzipFile = async (filePath: string) => {
         const uncompressedFilePath = SGUtils.ChangeFileExt(filePath, "");
-        await new Promise((resolve, reject) => {
+        await new Promise<void>((resolve, reject) => {
           compressing.gzip.uncompress(filePath, uncompressedFilePath)
             .then(() => { resolve(); })
             .catch((err) => { reject(err); })
@@ -282,17 +282,17 @@ export class SGUtils {
               };
 
             while (true) {
-                let res: any = await new Promise((resolve, reject) => {
+                let res: any = await new Promise<null | any>((resolve, reject) => {
                     cwl.getLogEvents(getLogEventsParams, async function (err, data) {
                         if (err) {
                             logger.LogError('Error in GetCloudWatchLogsEvents.getLogEvents', err.stack, { error: err.toString()});
                             if (err.message == 'Rate exceeded')
                                 await SGUtils.sleep(5000);
-                            return resolve();
+                            return resolve(null);
                         }
                         if (data.events)
                             return resolve({ events: data.events, nextToken: data.nextForwardToken });
-                        return resolve();
+                        return resolve(null);
                     });
                 });
 
