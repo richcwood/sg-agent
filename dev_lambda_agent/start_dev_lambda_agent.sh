@@ -1,4 +1,0 @@
-export AWS_ACCESS_KEY_ID=AKIAX3EV7JGZPNRECXBG
-export AWS_SECRET_ACCESS_KEY=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
-
-node ./LaunchAgent.js
