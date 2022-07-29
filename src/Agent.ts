@@ -33,7 +33,7 @@ import * as udp from "dgram";
 import { SIGTERM } from "constants";
 import { AGENT_UDP_PORT } from './shared/Const';
 
-const version = "v0.0.0.72";
+const version = "v0.0.0.73";
 const SG_AGENT_CONFIG_FILE_NAME = "sg.cfg";
 
 const regexStdoutRedirectFiles = RegExp("(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)", "g");
