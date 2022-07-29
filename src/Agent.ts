@@ -29,6 +29,9 @@ const moment = require("moment");
 const mtz = require("moment-timezone");
 import * as _ from "lodash";
 import * as AsyncLock from "async-lock";
+import * as udp from "dgram";
+import { SIGTERM } from "constants";
+import { AGENT_UDP_PORT } from './shared/Const';
 
 const version = "v0.0.0.72";
 const SG_AGENT_CONFIG_FILE_NAME = "sg.cfg";
@@ -82,6 +85,7 @@ export default class Agent {
   private inactivePeriodWaitTime: number = 0;
   private inactiveAgentJob: any;
   private ipcPath: string;
+  private udpListener: any;
   private handleGeneralTasks: boolean = true;
   private maxStdoutSize: number = 307200; // bytes
   private maxStderrSize: number = 51200; // bytes
@@ -338,6 +342,19 @@ export default class Agent {
         } catch (e) {}
       }
     }
+
+
+    this.udpListener = udp.createSocket("udp4");
+    this.udpListener.on("message", async (msg, rinfo) => {
+      if (msg == "shutdown") {
+        this.logger.LogWarning("UDP Listener received shutdown message", {});
+        await this.SignalHandler(SIGTERM);
+      }
+    });
+    // this.udpListener.on("listening", () => {
+    //   this.logger.LogDebug("UDP Listener started", {"address": this.udpListener.address, "port": this.udpListener.port});
+    // });
+    this.udpListener.bind(AGENT_UDP_PORT);
 
     this.timeLastActive = Date.now();
     this.CheckInactiveTime();

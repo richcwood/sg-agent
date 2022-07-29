@@ -9,6 +9,8 @@ import * as util from 'util';
 import * as ipc from 'node-ipc';
 import * as path from 'path';
 import * as _ from 'lodash';
+import * as udp from 'dgram';
+import { AGENT_UDP_PORT } from './shared/Const';
 
 const waitForAgentCreateInterval = 15000;
 const waitForAgentCreateMaxRetries = 20;
@@ -23,15 +25,15 @@ export default class AgentStub {
     private ipcPath: string;
     private logDest: string;
     private env: string;
-    private appName: string;
     private machineId: string = undefined;
     private apiUrl: string = undefined;
     private _teamId: string;
+    private agentProc: any = undefined;
+    private udpClient: any = undefined;
 
     constructor(private params: any) {
         this.apiUrl = params.apiUrl;
         this.env = params.env;
-        this.appName = params.appName;
 
         this.logDest = 'file';
         if (params.hasOwnProperty('logDest'))
@@ -77,6 +79,9 @@ export default class AgentStub {
         this.logger = new AgentLogger(this, this.logLevel, process.cwd() + '/installer_logs', this.apiUrl, this.params.apiPort, this.params.agentLogsAPIVersion);
         this.logger.Start();
 
+        process.on("SIGINT", this.SignalHandler.bind(this));
+        process.on("SIGTERM", this.SignalHandler.bind(this));
+    
         this.rootPath = path.dirname(process.argv[0]) + path.sep;
         this.rootPath = this.rootPath.replace('//', '/');
         this.rootPath = this.rootPath.replace('\\\\', '\\');
@@ -114,8 +119,25 @@ export default class AgentStub {
             }
         }));
         ipc.server.start();
+
+
+        this.udpClient = udp.createSocket("udp4");
+        this.udpClient.on('message', async (msg, info) => {
+            console.log(`Data received from server: ${msg.toString()}`);
+            console.log('Received %d bytes from %s:%d\n',msg.length, info.address, info.port);
+        });
     }
 
+
+    async SignalHandler(signal) {
+        const msg = Buffer.from("shutdown");
+        this.udpClient.send(msg, AGENT_UDP_PORT, 'localhost', (err => {
+            if (err) {
+                console.log(`Error sending shutdown message to client: ${err}`);
+                this.udpClient.close();
+            }
+        }));
+    }
 
     MachineId() { return (this.machineId ? this.machineId : os.hostname()); }
 
@@ -253,10 +275,6 @@ export default class AgentStub {
     async Start() {
         while (true) {
             try {
-                // let cron: any;
-                // if ((process.platform.indexOf('darwin') >= 0) || (process.platform.indexOf('linux') >= 0))
-                //     cron = await this.RunCommand('crontab -l', []);
-
                 console.log('Starting AgentStub');
 
                 if (!fs.existsSync(this.agentPath)) {
@@ -283,15 +301,15 @@ export default class AgentStub {
     }
 
 
-    async RunCommand(commandString: any, args: string[]) {
+    async SpawnAgentProcess(commandString: any, args: string[]) {
         return new Promise((resolve, reject) => {
             try {
                 this.logger.LogDebug('AgentLauncher running command', { commandString, args });
-                let cmd: any = spawn(commandString, args, { stdio: 'inherit', shell: true });
+                this.agentProc = spawn(commandString, args, { stdio: 'inherit', shell: true });
 
-                // cmd.stdout.on('data', (data) => {
+                // this.agentProc.stdout.on('data', (data) => {
                 //     try {
-                //         this.logger.LogError('AgentStub command stdout: ' + data, null, {});
+                //         // this.logger.LogError('AgentStub command stdout: ' + data, null, {});
                 //         console.log(`agent msg: ${data.toString()}`);
                 //     } catch (e) {
                 //         this.logger.LogError('Error handling stdout: ' + e.message, e.stack, {});
@@ -307,7 +325,7 @@ export default class AgentStub {
                 //     }
                 // });
 
-                cmd.on('exit', (code) => {
+                this.agentProc.on('exit', (code) => {
                     try {
                         resolve({ 'code': code });
                     } catch (e) {
@@ -403,7 +421,7 @@ export default class AgentStub {
         try {
             let cmdString = `"${this.agentPath}"`;
             if (fs.existsSync(this.agentPath)) {
-                res = await this.RunCommand(cmdString, [this.ipcPath, '--LogDest', this.logDest, '--LogLevel', this.logLevel, '--TeamId', this._teamId]);
+                res = await this.SpawnAgentProcess(cmdString, [this.ipcPath, '--LogDest', 'console', '--LogLevel', '10', '--TeamId', this._teamId]);
                 let logMsg: string;
                 if (res.code == 96) {
                     logMsg = 'Updating and restarting agent';
