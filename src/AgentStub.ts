@@ -5,12 +5,11 @@ import { spawn } from 'child_process';
 import { AgentLogger } from './shared/SGAgentLogger';
 import { SGUtils } from './shared/SGUtils';
 import { LogLevel } from './shared/Enums';
+import * as ipc from "node-ipc";
+import { IPCClient, IPCServer } from './shared/Comm';
 import * as util from 'util';
-import * as ipc from 'node-ipc';
 import * as path from 'path';
 import * as _ from 'lodash';
-import * as udp from 'dgram';
-import { AGENT_UDP_PORT } from './shared/Const';
 
 const waitForAgentCreateInterval = 15000;
 const waitForAgentCreateMaxRetries = 20;
@@ -22,14 +21,14 @@ export default class AgentStub {
     private logger: AgentLogger;
     private rootPath: string;
     private agentPath: string;
-    private ipcPath: string;
+    private ipcClient: any = undefined;
+    private ipcServer: any = undefined;
     private logDest: string;
     private env: string;
     private machineId: string = undefined;
     private apiUrl: string = undefined;
     private _teamId: string;
     private agentProc: any = undefined;
-    private udpClient: any = undefined;
 
     constructor(private params: any) {
         this.apiUrl = params.apiUrl;
@@ -90,11 +89,7 @@ export default class AgentStub {
         if (process.platform.startsWith('win'))
             this.agentPath += '.exe';
 
-        ipc.config.id = `SGAgentLauncherProc`;
-        this.ipcPath = `/tmp/app.${SGUtils.makeid(10)}.${ipc.config.id}`;
-        ipc.config.retry = 1500;
-        ipc.config.silent = true;
-        ipc.serve(this.ipcPath, () => ipc.server.on(`sg-agent-msg-${this._teamId}`, (message, socket) => {
+        this.ipcServer = new IPCServer("SGAgentLauncherProc", SGUtils.makeid(10), `sg-agent-msg-${this._teamId}`, async (message, socket) => {
             const logMsg = 'Message from Agent';
             this.logger.LogDebug(logMsg, message);
             if (message.propertyOverrides) {
@@ -117,27 +112,33 @@ export default class AgentStub {
                     this.logger.uploadAPIVersion = this.params.agentLogsAPIVersion;
                 }
             }
-        }));
-        ipc.server.start();
-
-
-        this.udpClient = udp.createSocket("udp4");
-        this.udpClient.on('message', async (msg, info) => {
-            console.log(`Data received from server: ${msg.toString()}`);
-            console.log('Received %d bytes from %s:%d\n',msg.length, info.address, info.port);
+            if (message.agentIPCServerPath) {
+                const agentIPCServerPath: string = message.agentIPCServerPath;
+                this.ipcClient = new IPCClient("SGAgentProc", `sg-agent-launcher-proc-${this._teamId}`, agentIPCServerPath, 
+                () => {
+                    this.logger.LogError("Error connecting to agent", "", {});
+                },
+                () => {
+                    this.logger.LogError(`Failed to connect to agent`, "", {});
+                },
+                async () => {
+                    this.logger.LogWarning(`Disconnected from agent`, {});
+                });
+                await this.ipcClient.ConnectIPC();
+            }
         });
     }
 
 
     async SignalHandler(signal) {
-        const msg = Buffer.from("shutdown");
-        this.udpClient.send(msg, AGENT_UDP_PORT, 'localhost', (err => {
-            if (err) {
-                console.log(`Error sending shutdown message to client: ${err}`);
-                this.udpClient.close();
-            }
-        }));
-    }
+        try {
+            const params: any = {"signal": signal};
+            this.logger.LogDebug(`Sending message to agent`, params);
+            await ipc.of.SGAgentProc.emit(`sg-agent-launcher-msg-${this._teamId}`, params);
+          } catch (e) {
+            this.logger.LogError(`Error sending message to agent`, e.stack, { error: e.toString() });
+          }
+      }
 
     MachineId() { return (this.machineId ? this.machineId : os.hostname()); }
 
@@ -421,13 +422,15 @@ export default class AgentStub {
         try {
             let cmdString = `"${this.agentPath}"`;
             if (fs.existsSync(this.agentPath)) {
-                res = await this.SpawnAgentProcess(cmdString, [this.ipcPath, '--LogDest', 'console', '--LogLevel', '10', '--TeamId', this._teamId]);
+                res = await this.SpawnAgentProcess(cmdString, [this.ipcServer.ipcPath, '--LogDest', 'console', '--LogLevel', '10', '--TeamId', this._teamId]);
                 let logMsg: string;
                 if (res.code == 96) {
                     logMsg = 'Updating and restarting agent';
                     this.logger.LogWarning(logMsg, {});
                     if (fs.existsSync(this.agentPath))
                         fs.unlinkSync(this.agentPath);
+                } else if (res.code == 97) {
+                    process.exit();
                 } else {
                     logMsg = `Agent stopped (${util.inspect(res, false, null)}) - restarting`;
                     if (res.code != 0) {

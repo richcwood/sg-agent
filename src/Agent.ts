@@ -29,11 +29,9 @@ const moment = require("moment");
 const mtz = require("moment-timezone");
 import * as _ from "lodash";
 import * as AsyncLock from "async-lock";
-import * as udp from "dgram";
-import { SIGTERM } from "constants";
-import { AGENT_UDP_PORT } from './shared/Const';
+import { IPCClient, IPCServer } from "./shared/Comm";
 
-const version = "v0.0.74";
+const version = "v0.0.75";
 const SG_AGENT_CONFIG_FILE_NAME = "sg.cfg";
 
 const regexStdoutRedirectFiles = RegExp("(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)", "g");
@@ -84,8 +82,9 @@ export default class Agent {
   private timeLastActive: number = Date.now();
   private inactivePeriodWaitTime: number = 0;
   private inactiveAgentJob: any;
-  private ipcPath: string;
-  private udpListener: any;
+  private agentLauncherIPCPath: string;
+  private ipcClient: any = undefined;
+  private ipcServer: any = undefined;
   private handleGeneralTasks: boolean = true;
   private maxStdoutSize: number = 307200; // bytes
   private maxStderrSize: number = 51200; // bytes
@@ -189,7 +188,7 @@ export default class Agent {
       }
     }
 
-    this.ipcPath = process.argv[2];
+    this.agentLauncherIPCPath = process.argv[2];
   }
 
   async CreateAgentInAPI() {
@@ -231,6 +230,15 @@ export default class Agent {
       this.agentLogsAPIVersion
     );
     this.logger.Start();
+
+    this.ipcServer = new IPCServer("SGAgentProc", SGUtils.makeid(10), `sg-agent-launcher-msg-${this._teamId}`, async (message, socket) => {
+      const logMsg = 'Message from AgentLauncher';
+      this.logger.LogDebug(logMsg, message);
+      if (message.signal) {
+        await this.SignalHandler(message.signal);
+      }
+  });
+
 
     this.logger.LogDebug(`Starting Agent`, {
       tags: this.tags,
@@ -308,8 +316,14 @@ export default class Agent {
 
     if (!this.runStandAlone) {
       try {
-        await this.ConnectIPC();
-        ipc.of.SGAgentLauncherProc.on("disconnect", async () => {
+        this.ipcClient = new IPCClient("SGAgentLauncherProc", `sg-agent-proc-${this._teamId}`, this.agentLauncherIPCPath, 
+        () => {
+          this.LogError("Error connecting to agent launcher - retrying", "", {});
+        },
+        () => {
+          if (!this.stopped) this.LogError(`Failed to connect to agent launcher`, "", {});
+        },
+        async () => {
           if (this.stopped) return;
           this.LogError(`Disconnected from agent launcher - attempting to reconnect in 10 seconds`, "", {});
           for (let i = 0; i < 10; i++) {
@@ -318,7 +332,7 @@ export default class Agent {
           }
           setTimeout(async () => {
             try {
-              if (!this.stopped) await this.ConnectIPC();
+              if (!this.stopped) await this.ipcClient.ConnectIPC();
             } catch (e) {
               this.LogError(`Error connecting to agent launcher - restarting`, "", e);
               try {
@@ -327,6 +341,7 @@ export default class Agent {
             }
           }, 1000);
         });
+        await this.ipcClient.ConnectIPC();
         await this.SendMessageToAgentStub({
           propertyOverrides: {
             instanceId: this.instanceId,
@@ -334,6 +349,7 @@ export default class Agent {
             apiPort: this.apiPort,
             agentLogsAPIVersion: this.agentLogsAPIVersion,
           },
+          agentIPCServerPath: this.ipcServer.ipcPath
         });
       } catch (e) {
         this.LogError(`Error connecting to agent launcher - restarting`, "", e);
@@ -343,18 +359,6 @@ export default class Agent {
       }
     }
 
-
-    this.udpListener = udp.createSocket("udp4");
-    this.udpListener.on("message", async (msg, rinfo) => {
-      if (msg == "shutdown") {
-        this.logger.LogWarning("UDP Listener received shutdown message", {});
-        await this.SignalHandler(SIGTERM);
-      }
-    });
-    // this.udpListener.on("listening", () => {
-    //   this.logger.LogDebug("UDP Listener started", {"address": this.udpListener.address, "port": this.udpListener.port});
-    // });
-    this.udpListener.bind(AGENT_UDP_PORT);
 
     this.timeLastActive = Date.now();
     this.CheckInactiveTime();
@@ -393,7 +397,7 @@ export default class Agent {
 
     await SGUtils.sleep(1000);
 
-    process.exit(128 + signal);
+    process.exit(97);
   }
 
   async GetArtifact(artifactId: string, destPath: string, _teamId: string) {
@@ -552,6 +556,7 @@ export default class Agent {
 
   async RestAPICall(url: string, method: string, headers: any = {}, data: any = {}) {
     return new Promise(async (resolve, reject) => {
+      let fullurl = "";
       try {
         if (!this.token) await this.RestAPILogin();
 
@@ -561,7 +566,7 @@ export default class Agent {
         const apiPort = this.apiPort;
 
         if (apiPort != "") apiUrl += `:${apiPort}`;
-        let fullurl = `${apiUrl}/api/${apiVersion}/${url}`;
+        fullurl = `${apiUrl}/api/${apiVersion}/${url}`;
 
         const combinedHeaders: any = Object.assign(
           {
@@ -595,7 +600,7 @@ export default class Agent {
           await this.RefreshAPIToken();
           resolve(this.RestAPICall(url, method, headers, data));
         } else {
-          this.logger.LogDebug(`RestAPICall error`, { error: e.toString() });
+          this.logger.LogDebug(`RestAPICall error`, { error: e.toString(), url: fullurl });
           e.message = `Error occurred calling ${method} on '${url}': ${e.message}`;
           reject(e);
         }
@@ -724,33 +729,6 @@ export default class Agent {
   async LogDebug(msg: string, values: any) {
     if (this.logger) await this.logger.LogDebug(msg, values);
     else console.log(msg, util.inspect(values, false, null));
-  }
-
-  async ConnectIPC() {
-    return new Promise<void>((resolve, reject) => {
-      try {
-        ipc.config.id = `sg-agent-proc-${this._teamId}`;
-        ipc.config.retry = 1000;
-        ipc.config.silent = true;
-        ipc.config.maxRetries = 10;
-        this.LogDebug(`Connecting to agent launcher`, {});
-        ipc.connectTo("SGAgentLauncherProc", this.ipcPath, () => {
-          ipc.of.SGAgentLauncherProc.on("connect", async () => {
-            this.LogDebug(`Connected to agent launcher`, {});
-            resolve();
-          });
-          ipc.of.SGAgentLauncherProc.on("error", async () => {
-            this.LogError(`Error connecting to agent launcher - retrying`, "", {});
-          });
-          ipc.of.SGAgentLauncherProc.on("destroy", async () => {
-            if (!this.stopped) this.LogError(`Failed to connect to agent launcher`, "", {});
-            // reject(new Error(`Failed to connect to agent launcher`));
-          });
-        });
-      } catch (e) {
-        reject(e);
-      }
-    });
   }
 
   async SendMessageToAgentStub(params) {
