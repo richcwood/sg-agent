@@ -218,6 +218,7 @@ export default class AgentStub {
 
     async RestAPICall(url: string, method: string, headers: any = {}, data: any = {}) {
         return new Promise(async (resolve, reject) => {
+            let fullurl = "";
             try {
                 if (!this.params.token)
                     await this.RestAPILogin();
@@ -228,7 +229,7 @@ export default class AgentStub {
 
                 if (apiPort != '')
                     apiUrl += `:${apiPort}`
-                url = `${apiUrl}/api/${apiVersion}/${url}`;
+                fullurl = `${apiUrl}/api/${apiVersion}/${url}`;
 
                 const combinedHeaders: any = Object.assign({
                     Cookie: `Auth=${this.params.token};`,
@@ -236,10 +237,10 @@ export default class AgentStub {
                 }, headers);
 
                 // console.log('RestAPICall -> url ', url, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.params.token);
-                this.logger.LogDebug(`RestAPICall`, {url, method, combinedHeaders, data, token: this.params.token});
+                this.logger.LogDebug(`RestAPICall`, {fullurl, method, combinedHeaders, data, token: this.params.token});
 
                 const response = await axios({
-                    url,
+                    url: fullurl,
                     method: method,
                     responseType: 'text',
                     headers: combinedHeaders,

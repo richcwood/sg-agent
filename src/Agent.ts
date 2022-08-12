@@ -601,7 +601,7 @@ export default class Agent {
           resolve(this.RestAPICall(url, method, headers, data));
         } else {
           this.logger.LogDebug(`RestAPICall error`, { error: e.toString(), url: fullurl });
-          e.message = `Error occurred calling ${method} on '${url}': ${e.message}`;
+          e.message = `Error occurred calling ${method} on '${fullurl}': ${e.message}`;
           reject(e);
         }
       }
