@@ -4,7 +4,8 @@ set -e
 
 export DOCKER_BUILDKIT=1
 
-GIT_TAG=`git describe --tags --abbrev=0`
+GIT_TAG=$1
+
 npm run build
 node ./BuildDockerAgentStub.js deploy/docker/agent/public/
 

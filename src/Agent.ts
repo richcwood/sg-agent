@@ -6,19 +6,19 @@ import * as fs from "fs";
 import * as fse from "fs-extra";
 import * as path from "path";
 import axios from "axios";
-import { AgentLogger } from "./shared/SGAgentLogger";
-import { StompConnector } from "./shared/StompLib";
-import { LogLevel } from "./shared/Enums";
-import { SGUtils } from "./shared/SGUtils";
-import { SGStrings } from "./shared/SGStrings";
+import {AgentLogger} from "./shared/SGAgentLogger";
+import {StompConnector} from "./shared/StompLib";
+import {LogLevel} from "./shared/Enums";
+import {SGUtils} from "./shared/SGUtils";
+import {SGStrings} from "./shared/SGStrings";
 import * as Enums from "./shared/Enums";
-import { TaskFailureCode } from "./shared/Enums";
-import { TaskSource } from "./shared/Enums";
-import { TaskDefTarget } from "./shared/Enums";
-import { TaskSchema } from "./domain/Task";
-import { StepSchema } from "./domain/Step";
-import { TaskOutcomeSchema } from "./domain/TaskOutcome";
-import { StepOutcomeSchema } from "./domain/StepOutcome";
+import {TaskFailureCode} from "./shared/Enums";
+import {TaskSource} from "./shared/Enums";
+import {TaskDefTarget} from "./shared/Enums";
+import {TaskSchema} from "./domain/Task";
+import {StepSchema} from "./domain/Step";
+import {TaskOutcomeSchema} from "./domain/TaskOutcome";
+import {StepOutcomeSchema} from "./domain/StepOutcome";
 import * as util from "util";
 import * as ipc from "node-ipc";
 import * as sysinfo from "systeminformation";
@@ -29,16 +29,16 @@ const moment = require("moment");
 const mtz = require("moment-timezone");
 import * as _ from "lodash";
 import * as AsyncLock from "async-lock";
-import { IPCClient, IPCServer } from "./shared/Comm";
+import {IPCClient, IPCServer} from "./shared/Comm";
 
-const version = "v0.0.77";
+const version = "v0.0.78";
 const SG_AGENT_CONFIG_FILE_NAME = "sg.cfg";
 
 const regexStdoutRedirectFiles = RegExp("(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)", "g");
 
 let runningProcesses: any = {};
 
-const lock = new AsyncLock({ timeout: 5000 });
+const lock = new AsyncLock({timeout: 5000});
 const lockConnectStomp: string = "lock_connect_stomp_key";
 const lockApiLogin: string = "lock_api_login_key";
 const lockRefreshToken: string = "lock_refresh_token_key";
@@ -179,6 +179,10 @@ export default class Agent {
       process.exit(1);
     }
 
+    if (Object.keys(this.tags).length < 1) {
+      if (process.env.SG_TAGS) this.tags = SGUtils.TagsStringToMap(process.env.SG_TAGS);
+    }
+
     if (this.env != "unittest") {
       if ("tags" in this.userConfig) this.tags = this.userConfig["tags"];
       if ("propertyOverrides" in this.userConfig)
@@ -231,14 +235,18 @@ export default class Agent {
     );
     this.logger.Start();
 
-    this.ipcServer = new IPCServer("SGAgentProc", SGUtils.makeid(10), `sg-agent-launcher-msg-${this._teamId}`, async (message, socket) => {
-      const logMsg = 'Message from AgentLauncher';
-      this.logger.LogDebug(logMsg, message);
-      if (message.signal) {
-        await this.SignalHandler(message.signal);
+    this.ipcServer = new IPCServer(
+      "SGAgentProc",
+      SGUtils.makeid(10),
+      `sg-agent-launcher-msg-${this._teamId}`,
+      async (message, socket) => {
+        const logMsg = "Message from AgentLauncher";
+        this.logger.LogDebug(logMsg, message);
+        if (message.signal) {
+          await this.SignalHandler(message.signal);
+        }
       }
-  });
-
+    );
 
     this.logger.LogDebug(`Starting Agent`, {
       tags: this.tags,
@@ -252,15 +260,15 @@ export default class Agent {
       agentProperties = await this.RestAPICall(
         `agent/machineid/${this.MachineId()}`,
         "GET",
-        { _teamId: this._teamId },
+        {_teamId: this._teamId},
         null
       );
     } catch (err) {
       if (err.response.status == 404) {
-        this.logger.LogDebug(`Error getting agent properties`, { error: err.toString() });
+        this.logger.LogDebug(`Error getting agent properties`, {error: err.toString()});
         agentProperties = await this.CreateAgentInAPI();
       } else {
-        this.logger.LogError(`Error getting agent properties`, err.stack, { error: err.toString() });
+        this.logger.LogError(`Error getting agent properties`, err.stack, {error: err.toString()});
         throw err;
       }
     }
@@ -275,7 +283,7 @@ export default class Agent {
 
     if (!this.areObjectsEqual(this.tags, agentProperties.tags)) {
       if (this.tags) {
-        await this.RestAPICall(`agent/tags/${this.instanceId.toHexString()}`, "PUT", null, { tags: this.tags });
+        await this.RestAPICall(`agent/tags/${this.instanceId.toHexString()}`, "PUT", null, {tags: this.tags});
       } else {
         this.tags = agentProperties.tags;
       }
@@ -316,31 +324,35 @@ export default class Agent {
 
     if (!this.runStandAlone) {
       try {
-        this.ipcClient = new IPCClient("SGAgentLauncherProc", `sg-agent-proc-${this._teamId}`, this.agentLauncherIPCPath, 
-        () => {
-          this.LogError("Error connecting to agent launcher - retrying", "", {});
-        },
-        () => {
-          if (!this.stopped) this.LogError(`Failed to connect to agent launcher`, "", {});
-        },
-        async () => {
-          if (this.stopped) return;
-          this.LogError(`Disconnected from agent launcher - attempting to reconnect in 10 seconds`, "", {});
-          for (let i = 0; i < 10; i++) {
-            if (this.stopped) break;
-            await SGUtils.sleep(1000);
-          }
-          setTimeout(async () => {
-            try {
-              if (!this.stopped) await this.ipcClient.ConnectIPC();
-            } catch (e) {
-              this.LogError(`Error connecting to agent launcher - restarting`, "", e);
-              try {
-                this.RunAgentStub();
-              } catch (e) {}
+        this.ipcClient = new IPCClient(
+          "SGAgentLauncherProc",
+          `sg-agent-proc-${this._teamId}`,
+          this.agentLauncherIPCPath,
+          () => {
+            this.LogError("Error connecting to agent launcher - retrying", "", {});
+          },
+          () => {
+            if (!this.stopped) this.LogError(`Failed to connect to agent launcher`, "", {});
+          },
+          async () => {
+            if (this.stopped) return;
+            this.LogError(`Disconnected from agent launcher - attempting to reconnect in 10 seconds`, "", {});
+            for (let i = 0; i < 10; i++) {
+              if (this.stopped) break;
+              await SGUtils.sleep(1000);
             }
-          }, 1000);
-        });
+            setTimeout(async () => {
+              try {
+                if (!this.stopped) await this.ipcClient.ConnectIPC();
+              } catch (e) {
+                this.LogError(`Error connecting to agent launcher - restarting`, "", e);
+                try {
+                  this.RunAgentStub();
+                } catch (e) {}
+              }
+            }, 1000);
+          }
+        );
         await this.ipcClient.ConnectIPC();
         await this.SendMessageToAgentStub({
           propertyOverrides: {
@@ -349,7 +361,7 @@ export default class Agent {
             apiPort: this.apiPort,
             agentLogsAPIVersion: this.agentLogsAPIVersion,
           },
-          agentIPCServerPath: this.ipcServer.ipcPath
+          agentIPCServerPath: this.ipcServer.ipcPath,
         });
       } catch (e) {
         this.LogError(`Error connecting to agent launcher - restarting`, "", e);
@@ -358,7 +370,6 @@ export default class Agent {
         } catch (e) {}
       }
     }
-
 
     this.timeLastActive = Date.now();
     this.CheckInactiveTime();
@@ -427,7 +438,7 @@ export default class Agent {
         }
         resolve(artifactSize);
       } catch (e) {
-        this.logger.LogError(`Error downloading artifact`, e.stack, { artifactId, error: e.toString() });
+        this.logger.LogError(`Error downloading artifact`, e.stack, {artifactId, error: e.toString()});
         reject(e);
       }
     });
@@ -479,7 +490,7 @@ export default class Agent {
           if (err) {
             retryCount += 1;
             if (retryCount > 5) {
-              this.LogError("Error acquiring api login lock in RestAPILogin", err.stack, { error: err.toString() });
+              this.LogError("Error acquiring api login lock in RestAPILogin", err.stack, {error: err.toString()});
               reject();
             } else {
               setTimeout(() => {
@@ -538,7 +549,7 @@ export default class Agent {
           if (err) {
             retryCount += 1;
             if (retryCount > 5) {
-              this.LogError("Error acquiring api login lock in RefreshAPIToken", err.stack, { error: err.toString() });
+              this.LogError("Error acquiring api login lock in RefreshAPIToken", err.stack, {error: err.toString()});
               reject();
             } else {
               setTimeout(() => {
@@ -600,7 +611,7 @@ export default class Agent {
           await this.RefreshAPIToken();
           resolve(this.RestAPICall(url, method, headers, data));
         } else {
-          this.logger.LogDebug(`RestAPICall error`, { error: e.toString(), url: fullurl });
+          this.logger.LogDebug(`RestAPICall error`, {error: e.toString(), url: fullurl});
           e.message = `Error occurred calling ${method} on '${fullurl}': ${e.message}`;
           reject(e);
         }
@@ -755,7 +766,7 @@ export default class Agent {
 
       await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, "PUT", null, heartbeat_info);
     } catch (e) {
-      this.LogError(`Error sending disconnect message`, e.stack, { error: e.toString() });
+      this.LogError(`Error sending disconnect message`, e.stack, {error: e.toString()});
     }
   }
 
@@ -767,7 +778,7 @@ export default class Agent {
     } catch (err) {
       retryCount += 1;
       if (retryCount > 10) {
-        this.LogWarning(`Error removing folder`, { path, error: err.toString() });
+        this.LogWarning(`Error removing folder`, {path, error: err.toString()});
       } else {
         setTimeout(() => {
           this.RemoveFolder(path, retryCount);
@@ -833,7 +844,7 @@ export default class Agent {
     } catch (e) {
       if (!this.stopped) {
         delete e.request;
-        const errorData = { Error: e.message };
+        const errorData = {Error: e.message};
         if (e.response) errorData["Data"] = e.response.data;
         this.LogError(`Error sending heartbeat`, "", errorData);
         if (!once)
@@ -853,7 +864,7 @@ export default class Agent {
 
         if (this.inactiveAgentJob && this.inactiveAgentJob.id) {
           try {
-            this.LogDebug("Running inactive agent job", { inactiveAgentJob: this.inactiveAgentJob });
+            this.LogDebug("Running inactive agent job", {inactiveAgentJob: this.inactiveAgentJob});
 
             let runtimeVars: any = {};
             if (this.inactiveAgentJob.runtimeVars) Object.assign(runtimeVars, this.inactiveAgentJob.runtimeVars);
@@ -866,7 +877,7 @@ export default class Agent {
               createdBy: this.MachineId(),
             };
 
-            await this.RestAPICall(`job`, "POST", { _jobDefId: this.inactiveAgentJob.id }, data);
+            await this.RestAPICall(`job`, "POST", {_jobDefId: this.inactiveAgentJob.id}, data);
           } catch (e) {
             this.LogError("Error running inactive agent job", e.stack, {
               inactiveAgentJob: this.inactiveAgentJob,
@@ -903,7 +914,7 @@ export default class Agent {
             });
             // this.queueCompleteMessages.shift();
           } else {
-            this.LogError(`Error sending complete message`, e.stack, { request: msg, error: e.toString() });
+            this.LogError(`Error sending complete message`, e.stack, {request: msg, error: e.toString()});
             this.queueCompleteMessages.unshift(msg);
             await SGUtils.sleep(10000);
           }
@@ -922,9 +933,9 @@ export default class Agent {
       let rtVar = {};
       if (k.startsWith("<<") && k.endsWith(">>")) {
         k = k.substring(2, k.length - 2);
-        rtVar[k] = { sensitive: true };
+        rtVar[k] = {sensitive: true};
       } else if (k != "route") {
-        rtVar[k] = { sensitive: false };
+        rtVar[k] = {sensitive: false};
       } else {
         rtVar[k] = {};
       }
@@ -1056,7 +1067,7 @@ export default class Agent {
               })
               .on("end", function () {
                 if (stdoutTruncated) output += "\n" + lastXLines.join("\n");
-                resolve({ output: output, runtimeVars: runtimeVars, lastXLines: lastXLines });
+                resolve({output: output, runtimeVars: runtimeVars, lastXLines: lastXLines});
               })
           );
       } catch (e) {
@@ -1098,7 +1109,7 @@ export default class Agent {
                 reject(new Error(`Error reading stderr file '${filePath}' on line ${lineCount}: ${err}`));
               })
               .on("end", function () {
-                resolve({ output: output });
+                resolve({output: output});
               })
           );
       } catch (e) {
@@ -1136,23 +1147,23 @@ export default class Agent {
 
     Object.assign(
       sysInfo,
-      { osInfo: osInfo },
-      { time: sysinfo.time() },
-      { cpuCurrentspeed: cpuCurrentspeed },
-      { cpuTemperature: cpuTemperature },
-      { currentLoad: currentLoad },
-      { mem: mem },
-      { fsSize: fsSize },
-      { inetLatency: inetLatency },
-      { networkStats: networkStats },
-      { processes: procs }
+      {osInfo: osInfo},
+      {time: sysinfo.time()},
+      {cpuCurrentspeed: cpuCurrentspeed},
+      {cpuTemperature: cpuTemperature},
+      {currentLoad: currentLoad},
+      {mem: mem},
+      {fsSize: fsSize},
+      {inetLatency: inetLatency},
+      {networkStats: networkStats},
+      {processes: procs}
       // { networkConnections: networkConnections },
       // { users: users },
       // { battery: battery }
     );
 
-    if (fsStats) Object.assign(sysInfo, { fsStats: fsStats });
-    if (disksIO) Object.assign(sysInfo, { disksIO: disksIO });
+    if (fsStats) Object.assign(sysInfo, {fsStats: fsStats});
+    if (disksIO) Object.assign(sysInfo, {disksIO: disksIO});
 
     return sysInfo;
   };
@@ -1225,7 +1236,7 @@ export default class Agent {
             url: `taskOutcome/${params.taskOutcomeId}`,
             method: "PUT",
             headers: null,
-            data: { _teamId: params._teamId, runtimeVars: rtvUpdates },
+            data: {_teamId: params._teamId, runtimeVars: rtvUpdates},
           });
         }
 
@@ -1273,7 +1284,7 @@ export default class Agent {
           if (params.stdoutTruncated) break;
         }
       } catch (err) {
-        this.LogError(`Error handling stdout tail`, err.stack, { error: err.toString() });
+        this.LogError(`Error handling stdout tail`, err.stack, {error: err.toString()});
         await SGUtils.sleep(1000);
       }
     }
@@ -1385,7 +1396,7 @@ export default class Agent {
             lambdaCode.ZipFile = zipContents;
             handler = "lambda_function.lambda_handler";
           } else {
-            appInst.LogError(`Unsupported lambda runtime`, "", { step });
+            appInst.LogError(`Unsupported lambda runtime`, "", {step});
             throw new Error("Unsupported lambda runtime");
           }
           const zipFileSizeMB: number = fs.statSync(zipFilePath).size / 1024.0 / 1024.0;
@@ -1406,7 +1417,7 @@ export default class Agent {
             lambdaFileLoadedToSGAWS = true;
           }
         } else {
-          let artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, "GET", null, { _teamId });
+          let artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, "GET", null, {_teamId});
           lambdaCode.S3Bucket = step.s3Bucket;
 
           let s3Path = "";
@@ -1547,7 +1558,7 @@ export default class Agent {
           outParams[SGStrings.status] = Enums.StepStatus.SUCCEEDED;
         } else {
           code = -1;
-          runtimeVars["route"] = { value: "fail" };
+          runtimeVars["route"] = {value: "fail"};
           outParams[SGStrings.status] = Enums.StepStatus.FAILED;
           outParams["failureCode"] = Enums.TaskFailureCode.TASK_EXEC_ERROR;
         }
@@ -1568,7 +1579,7 @@ export default class Agent {
         }
         resolve(outParams);
       } catch (e) {
-        this.LogError("Error in RunStepAsync_Lambda", e.stack, { error: e.toString() });
+        this.LogError("Error in RunStepAsync_Lambda", e.stack, {error: e.toString()});
         await SGUtils.sleep(1000);
         error += e.toString() + "\n";
         resolve({
@@ -1656,7 +1667,7 @@ export default class Agent {
         let stdoutTruncated: boolean = false;
 
         /// tail the stdout
-        let tail = new Tail(stdoutFileName, { useWatchFile: true, flushAtEOF: true });
+        let tail = new Tail(stdoutFileName, {useWatchFile: true, flushAtEOF: true});
         tail.on("line", async (data) => {
           if (process.platform.indexOf("win") != 0)
             try {
@@ -1666,7 +1677,7 @@ export default class Agent {
         });
 
         tail.on("error", function (error) {
-          this.LogError("Error tailing stdout file", error.stack, { error: error.toString() });
+          this.LogError("Error tailing stdout file", error.stack, {error: error.toString()});
         });
 
         let env: any = Object.assign({}, process.env);
@@ -1695,7 +1706,7 @@ export default class Agent {
             } catch (e) {}
 
             // console.log('error: ' + err);
-            this.LogError(`Error running script`, "", { error: err.toString() });
+            this.LogError(`Error running script`, "", {error: err.toString()});
             resolve({
               status: Enums.StepStatus.FAILED,
               code: -1,
@@ -1704,7 +1715,7 @@ export default class Agent {
               failureCode: TaskFailureCode.AGENT_EXEC_ERROR,
             });
           } catch (e) {
-            this.LogError("Error handling error event", e.stack, { error: e.message });
+            this.LogError("Error handling error event", e.stack, {error: e.message});
           }
         });
 
@@ -1762,10 +1773,10 @@ export default class Agent {
               outParams[SGStrings.status] = Enums.StepStatus.SUCCEEDED;
             } else {
               if (signal == "SIGTERM" || signal == "SIGINT" || this.mainProcessInterrupted) {
-                runtimeVars["route"] = { value: "interrupt" };
+                runtimeVars["route"] = {value: "interrupt"};
                 outParams[SGStrings.status] = Enums.StepStatus.INTERRUPTED;
               } else {
-                runtimeVars["route"] = { value: "fail" };
+                runtimeVars["route"] = {value: "fail"};
                 outParams[SGStrings.status] = Enums.StepStatus.FAILED;
                 outParams["failureCode"] = Enums.TaskFailureCode.TASK_EXEC_ERROR;
               }
@@ -1782,7 +1793,7 @@ export default class Agent {
 
             resolve(outParams);
           } catch (e) {
-            this.LogError("Error handling script exit", e.stack, { error: e.toString() });
+            this.LogError("Error handling script exit", e.stack, {error: e.toString()});
             resolve({
               status: Enums.StepStatus.FAILED,
               code: -1,
@@ -1825,7 +1836,7 @@ export default class Agent {
 
               if (Object.keys(rtvUpdates).length > 0) {
                 // console.log(`****************** taskOutcomeId -> ${taskOutcomeId}`);
-                await appInst.RestAPICall(`taskOutcome/${taskOutcomeId}`, "PUT", null, { runtimeVars: rtvUpdates });
+                await appInst.RestAPICall(`taskOutcome/${taskOutcomeId}`, "PUT", null, {runtimeVars: rtvUpdates});
               }
             }
 
@@ -1878,13 +1889,13 @@ export default class Agent {
               if (stdoutTruncated) break;
             }
           } catch (err) {
-            this.LogError(`Error handling stdout tail`, err.stack, { error: err.toString() });
+            this.LogError(`Error handling stdout tail`, err.stack, {error: err.toString()});
             await SGUtils.sleep(1000);
           }
         }
         stdoutAnalysisFinished = true;
       } catch (e) {
-        this.LogError("Error in RunStepAsync", e.stack, { error: e.toString() });
+        this.LogError("Error in RunStepAsync", e.stack, {error: e.toString()});
         await SGUtils.sleep(1000);
         resolve({
           status: Enums.StepStatus.FAILED,
@@ -2162,7 +2173,7 @@ export default class Agent {
 
       taskOutcome = <TaskOutcomeSchema>await this.RestAPICall(`taskOutcome`, "POST", null, taskOutcome);
 
-      let taskOutcomeUpdates: any = { runtimeVars: { route: "fail" } };
+      let taskOutcomeUpdates: any = {runtimeVars: {route: "fail"}};
       taskOutcomeUpdates.status = Enums.TaskStatus.FAILED;
       taskOutcomeUpdates.failureCode = TaskFailureCode.AGENT_EXEC_ERROR;
       taskOutcomeUpdates.dateCompleted = new Date().toISOString();
@@ -2175,12 +2186,12 @@ export default class Agent {
 
       delete runningProcesses[taskOutcome.id];
     } catch (e) {
-      this.LogError("Error in CompleteTaskGeneralErrorHandler", e.stack, { error: e.toString() });
+      this.LogError("Error in CompleteTaskGeneralErrorHandler", e.stack, {error: e.toString()});
     }
   };
 
   CompleteTask = async (params: any, msgKey: string, cb: any) => {
-    this.LogDebug("Task received", { msgKey, params });
+    this.LogDebug("Task received", {msgKey, params});
     this.numActiveTasks += 1;
     try {
       if (this.numActiveTasks > this.maxActiveTasks) {
@@ -2190,7 +2201,7 @@ export default class Agent {
         await this.RunTask(params);
       }
     } catch (e) {
-      this.LogError("Error in CompleteTask", e.stack, { error: e.toString() });
+      this.LogError("Error in CompleteTask", e.stack, {error: e.toString()});
       // await this.CompleteTaskGeneralErrorHandler(params);
       return cb(true, msgKey);
     } finally {
@@ -2218,7 +2229,7 @@ export default class Agent {
         }
 
         this.updating = true;
-        await this.LogDebug("Update Agent version message received", { msgKey, params });
+        await this.LogDebug("Update Agent version message received", {msgKey, params});
         await SGUtils.sleep(2000);
         await this.StopConsuming();
         if (this.numActiveTasks > 0) await this.LogDebug("Updating Agent - waiting for current tasks to complete", {});
@@ -2230,23 +2241,23 @@ export default class Agent {
       }
 
       if (params.tags) {
-        await this.LogDebug("Update tags message received", { msgKey, params });
+        await this.LogDebug("Update tags message received", {msgKey, params});
         this.tags = params.tags;
-        this.updateUserConfigValues({ tags: this.tags });
+        this.updateUserConfigValues({tags: this.tags});
       }
 
       if (params.propertyOverrides) {
-        await this.LogDebug("Update property overrides message received", { msgKey, params });
+        await this.LogDebug("Update property overrides message received", {msgKey, params});
 
         // await cb(true, msgKey);
         await this.UpdatePropertyOverrides(params.propertyOverrides, "server");
-        this.updateUserConfigValues({ propertyOverrides: params.propertyOverrides });
+        this.updateUserConfigValues({propertyOverrides: params.propertyOverrides});
         await this.SendHeartbeat(false, true);
         await this.SendMessageToAgentStub(params);
       }
 
       if (params.interruptTask) {
-        await this.LogDebug("Interrupt task message received", { msgKey, params });
+        await this.LogDebug("Interrupt task message received", {msgKey, params});
         const procToInterrupt = runningProcesses[params.interruptTask.id];
         if (procToInterrupt && typeof procToInterrupt == "object" && procToInterrupt.pid) {
           // console.log('Interrupting task');
@@ -2255,7 +2266,7 @@ export default class Agent {
           procToInterrupt.kill();
           // console.log('Task interrupted');
         } else {
-          const runtimeVars: any = { route: { value: "interrupt" } };
+          const runtimeVars: any = {route: {value: "interrupt"}};
           let taskOutcomeUpdate: any = {
             status: Enums.TaskStatus.INTERRUPTED,
             runtimeVars: runtimeVars,
@@ -2266,7 +2277,7 @@ export default class Agent {
 
       if (params.stopAgent) {
         this.stopping = true;
-        await this.LogDebug("Stop Agent message received", { msgKey, params });
+        await this.LogDebug("Stop Agent message received", {msgKey, params});
         await SGUtils.sleep(2000);
         await this.StopConsuming();
         if (this.numActiveTasks > 0) await this.LogDebug("Stopping Agent - waiting for current tasks to complete", {});
@@ -2283,7 +2294,7 @@ export default class Agent {
 
       // await cb(true, msgKey);
     } catch (e) {
-      this.LogError(`Error in Update`, e.stack, { error: e.toString() });
+      this.LogError(`Error in Update`, e.stack, {error: e.toString()});
     } finally {
       // this.lockUpdate.release();
     }
@@ -2300,7 +2311,7 @@ export default class Agent {
             this.logger.logLevel = propertyOverrides[key];
             let props = {};
             props[key] = propertyOverrides[key];
-            await this.SendMessageToAgentStub({ propertyOverrides: props });
+            await this.SendMessageToAgentStub({propertyOverrides: props});
           }
         } else {
           if (propertyOverrides[key] == null) {
@@ -2344,7 +2355,7 @@ export default class Agent {
       },
       (err, ret) => {
         if (err) {
-          this.LogError("Error in OnRabbitMQDisconnect", err.stack, { error: err.toString() });
+          this.LogError("Error in OnRabbitMQDisconnect", err.stack, {error: err.toString()});
           process.exitCode = 1;
         }
       },
@@ -2381,7 +2392,7 @@ export default class Agent {
       try {
         await this.stompConsumer.Start();
       } catch (e) {
-        this.LogError("Error starting stomp - trying again in 30 seconds", e.stack, { error: e.toString() });
+        this.LogError("Error starting stomp - trying again in 30 seconds", e.stack, {error: e.toString()});
         setTimeout(() => {
           this.ConnectStomp();
         }, 30000);
@@ -2392,7 +2403,7 @@ export default class Agent {
         await this.CheckStompConnection();
       }, 30000);
     } catch (e) {
-      this.LogError("Error in ConnectStomp", e.stack, { error: e.toString() });
+      this.LogError("Error in ConnectStomp", e.stack, {error: e.toString()});
       // setTimeout(() => { this.ConnectStomp(); }, 30000);
     }
   }
@@ -2429,7 +2440,7 @@ export default class Agent {
   async RunAgentStub() {
     let commandString: any = process.cwd() + "/sg-agent-launcher";
     try {
-      spawn(commandString, [], { stdio: "pipe", shell: true });
+      spawn(commandString, [], {stdio: "pipe", shell: true});
       process.exit();
     } catch (e) {
       console.error(`Error starting agent launcher '${commandString}': ${e.message}`, e.stack);
@@ -2443,28 +2454,28 @@ export default class Agent {
       try {
         let stdout: string = "";
         // this.LogDebug('GetCronTab: ' + commandString + ' ' + args, {});
-        let cmd: any = spawn(commandString, args, { stdio: "pipe", shell: true });
+        let cmd: any = spawn(commandString, args, {stdio: "pipe", shell: true});
 
         cmd.stdout.on("data", (data) => {
           try {
             // this.LogDebug('GetCronTab on.stdout.data', { data: data.toString() });
             stdout = data.toString();
           } catch (e) {
-            this.LogError("Error handling stdout in GetCronTab", e.stack, { error: e.toString() });
+            this.LogError("Error handling stdout in GetCronTab", e.stack, {error: e.toString()});
             resolve(null);
           }
         });
 
         cmd.on("exit", (code) => {
           try {
-            resolve({ code: code, stdout: stdout });
+            resolve({code: code, stdout: stdout});
           } catch (e) {
-            this.LogError("Error handling exit in GetCronTab", e.stack, { error: e.toString() });
+            this.LogError("Error handling exit in GetCronTab", e.stack, {error: e.toString()});
             resolve(null);
           }
         });
       } catch (e) {
-        this.LogError(`GetCronTab error`, e.stack, { commandString, error: e.toString() });
+        this.LogError(`GetCronTab error`, e.stack, {commandString, error: e.toString()});
         resolve(null);
       }
     });
