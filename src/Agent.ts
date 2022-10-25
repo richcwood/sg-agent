@@ -31,7 +31,7 @@ import * as _ from "lodash";
 import * as AsyncLock from "async-lock";
 import {IPCClient, IPCServer} from "./shared/Comm";
 
-const version = "v0.0.78";
+const version = "v0.0.79";
 const SG_AGENT_CONFIG_FILE_NAME = "sg.cfg";
 
 const regexStdoutRedirectFiles = RegExp("(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)", "g");
@@ -2064,6 +2064,7 @@ export default class Agent {
           runCode: runCode,
           status: Enums.TaskStatus.RUNNING,
           dateStarted: new Date().toISOString(),
+          agentTags: this.tags,
         };
 
         if (task.target == Enums.TaskDefTarget.AWS_LAMBDA) {
