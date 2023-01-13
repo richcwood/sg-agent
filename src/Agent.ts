@@ -179,7 +179,7 @@ export default class Agent {
       process.exit(1);
     }
 
-    if (Object.keys(this.tags).length < 1) {
+    if (this.tags && Object.keys(this.tags).length < 1) {
       if (process.env.SG_TAGS) this.tags = SGUtils.TagsStringToMap(process.env.SG_TAGS);
     }
 
@@ -1404,7 +1404,7 @@ export default class Agent {
             let s3Path = `lambda/${task.id}`;
             let res: any = await SGUtils.RunCommand(`aws s3 cp ${zipFilePath} s3://${step.s3Bucket}/${s3Path}`, {});
             if (res.stderr != "" || res.code != 0) {
-              appInst.LogError(`Error loading large lambda function to S3`, "", {
+              appInst.LogError(`Error loading lambda function to S3`, "", {
                 stderr: res.stderr,
                 stdout: res.stdout,
                 code: res.code,
@@ -1579,9 +1579,10 @@ export default class Agent {
         }
         resolve(outParams);
       } catch (e) {
-        this.LogError("Error in RunStepAsync_Lambda", e.stack, {error: e.toString()});
+        let errMsg: string = e.message || e.toString();
+        this.LogError("Error in RunStepAsync_Lambda", e.stack, {error: errMsg});
         await SGUtils.sleep(1000);
-        error += e.toString() + "\n";
+        error += errMsg + "\n";
         resolve({
           status: Enums.StepStatus.FAILED,
           code: -1,
@@ -2097,7 +2098,10 @@ export default class Agent {
           );
         }
         lastStepOutcome = res;
-        // console.log('Agent -> RunTask -> RunStepAsync -> res -> ', util.inspect(res, false, null));
+        if (task.target == Enums.TaskDefTarget.AWS_LAMBDA) {
+          res._teamId = task._teamId;
+        }
+        // console.log("Agent -> RunTask -> RunStepAsync -> res -> ", util.inspect(res, false, null));
 
         this.queueCompleteMessages.push({
           url: `stepOutcome/${stepOutcome.id}`,
