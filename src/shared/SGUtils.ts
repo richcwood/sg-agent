@@ -555,7 +555,9 @@ end
 
       const lambda = new AWS.Lambda({maxRetries: 10});
       lambda.createFunction(params, async function (err, data) {
-        if (err) reject(err);
+        if (err) {
+          reject(err);
+        }
         const maxTries = 10;
         let tryCount = 0;
         while (true) {
