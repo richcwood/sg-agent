@@ -31,7 +31,7 @@ import * as _ from "lodash";
 import * as AsyncLock from "async-lock";
 import {IPCClient, IPCServer} from "./shared/Comm";
 
-const version = "v0.0.79";
+const version = "v0.0.80";
 const SG_AGENT_CONFIG_FILE_NAME = "sg.cfg";
 
 const regexStdoutRedirectFiles = RegExp("(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)", "g");
