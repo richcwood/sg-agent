@@ -1,0 +1,11 @@
+{{- if .Values.rbac.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: saasglue-agent
+rules:
+  - apiGroups: ["apps", "batch", ""]
+    resources: ["jobs", "pods"]
+    verbs: ["create", "list"]
+{{- end }}

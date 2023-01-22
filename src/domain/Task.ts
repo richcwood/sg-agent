@@ -1,49 +1,50 @@
-import * as mongodb from 'mongodb';
-
+import * as mongodb from "mongodb";
+import {MongoDbSettings} from "aws-sdk/clients/dms";
 
 export class TaskSchema {
+  id?: mongodb.ObjectId;
 
-    id?: mongodb.ObjectId;
+  _teamId: mongodb.ObjectId;
 
-    _teamId: mongodb.ObjectId;
+  _jobId: mongodb.ObjectId;
 
-    _jobId: mongodb.ObjectId;
+  _taskOutcomeId: mongodb.ObjectId;
 
-    name: string;
+  name: string;
 
-    source: number;
+  source: number;
 
-    target: number;
+  target: number;
 
-    targetAgentId: string; 
-  
-    requiredTags?: any[];
+  targetAgentId: string;
 
-    fromRoutes?: string[][];
+  requiredTags?: any[];
 
-    artifacts?: mongodb.ObjectId[];
+  fromRoutes?: string[][];
 
-    createdBy?: string;
+  artifacts?: mongodb.ObjectId[];
 
-    sourceTaskRoute: any;
+  createdBy?: string;
 
-    correlationId?: string;
+  sourceTaskRoute: any;
 
-    status?: number;
+  correlationId?: string;
 
-    error?: string;
+  status?: number;
 
-    failureCode?: number;
+  error?: string;
 
-    runtimeVars: any;
+  failureCode?: number;
 
-    route?: string;
+  runtimeVars: any;
 
-    down_dep?: string[][];
+  route?: string;
 
-    up_dep?: any;
+  down_dep?: string[][];
 
-    scriptsToInject?: any;
+  up_dep?: any;
 
-    autoRestart: boolean;
-};
+  scriptsToInject?: any;
+
+  autoRestart: boolean;
+}

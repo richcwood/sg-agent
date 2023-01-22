@@ -1,0 +1,9 @@
+apiVersion: v2
+name: saasglue-agent
+description: A Kubernetes Helm chart to deploy the SaaSGlue Agent
+
+type: application
+
+version: 0.1.0
+
+appVersion: 0.1.0

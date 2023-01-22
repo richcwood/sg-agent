@@ -1,6 +1,6 @@
 {
   "name": "saasglue-agent",
-  "version": "1.0.0",
+  "version": "v0.0.79",
   "description": "",
   "engines": {
     "node": ">=0.10.0"
