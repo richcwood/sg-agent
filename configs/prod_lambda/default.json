@@ -1,0 +1,11 @@
+{
+  "apiUrl": "https://console.saasglue.com",
+  "apiPort": "",
+  "agentLogsAPIVersion": "v0",
+  "agentPlatform": "macos",
+  "agentArch": "",
+  "logDest": "console",
+  "logLevel": 10,
+  "env": "production",
+  "teamId": "5f57b2f14b5da00017df0d4f"
+}

@@ -31,7 +31,7 @@ import * as _ from "lodash";
 import * as AsyncLock from "async-lock";
 import {IPCClient, IPCServer} from "./shared/Comm";
 
-const version = "v0.0.79";
+const version = "v0.0.80";
 const SG_AGENT_CONFIG_FILE_NAME = "sg.cfg";
 
 const regexStdoutRedirectFiles = RegExp("(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)", "g");
@@ -1911,7 +1911,7 @@ export default class Agent {
 
   RunTask = async (task: TaskSchema) => {
     // this.LogDebug('Running task', { 'id': task.id });
-    // console.log('Agent -> RunTask -> task -> ', util.inspect(task, false, null));
+    // console.log("Agent -> RunTask -> task -> ", util.inspect(task, false, null));
     let dateStarted = new Date().toISOString();
 
     let workingDirectory = process.cwd() + path.sep + SGUtils.makeid(10);
@@ -1939,30 +1939,15 @@ export default class Agent {
     // console.log('Agent -> RunTask -> stepsAsc -> ', util.inspect(stepsAsc, false, null));
 
     let taskOutcome: any = {
-      _teamId: this._teamId,
-      _jobId: task._jobId,
-      _taskId: task.id,
-      _agentId: this.instanceId,
-      sourceTaskRoute: task.sourceTaskRoute,
-      source: task.source,
       status: Enums.TaskStatus.RUNNING,
-      correlationId: task.correlationId,
       dateStarted: dateStarted,
       ipAddress: this.ipAddress,
       machineId: this.MachineId(),
       artifactsDownloadedSize: artifactsDownloadedSize,
-      target: task.target,
-      runtimeVars: task.runtimeVars,
-      autoRestart: task.autoRestart,
     };
-
-    if (task.target == Enums.TaskDefTarget.AWS_LAMBDA) {
-      taskOutcome._teamId = task._teamId;
-      taskOutcome.ipAddress = "0.0.0.0";
-      taskOutcome.machineId = "lambda-executor";
-    }
-
-    taskOutcome = <TaskOutcomeSchema>await this.RestAPICall(`taskOutcome`, "POST", null, taskOutcome);
+    taskOutcome = <TaskOutcomeSchema>(
+      await this.RestAPICall(`taskOutcome/${task._taskOutcomeId}`, "PUT", null, taskOutcome)
+    );
     // console.log('taskOutcome -> POST -> ', util.inspect(taskOutcome, false, null));
     if (taskOutcome.status == Enums.TaskStatus.RUNNING) {
       let lastStepOutcome = undefined;

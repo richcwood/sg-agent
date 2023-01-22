@@ -41,6 +41,13 @@ process.on("unhandledRejection", (reason, p) => {
     machineId = os.hostname();
     ipAddress = SGUtils_1.SGUtils.getIpAddress();
 
+    // console.log("config ----------> ", config);
+
+    // const fs = require('fs');
+    // fs.readdirSync('./').forEach(file => {
+    //     console.log(file);
+    // });
+
     let apiUrl = config.get("apiUrl");
     let apiPort = config.get("apiPort");
     let agentLogsAPIVersion = config.get("agentLogsAPIVersion");
@@ -63,11 +70,6 @@ process.on("unhandledRejection", (reason, p) => {
       logDest: logDest,
       env: env,
     };
-
-    // const fs = require('fs');
-    // fs.readdirSync('./').forEach(file => {
-    //     console.log(file);
-    // });
 
     for (let i = 0; i < process.argv.length; i++) {
       if (process.argv[i] == "--LogDest") {

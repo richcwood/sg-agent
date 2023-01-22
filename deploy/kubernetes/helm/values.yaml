@@ -1,0 +1,66 @@
+# Default values for SaaSGlue Agent.
+
+image:
+  repository: saasglue/sg-agent
+  pullPolicy: IfNotPresent
+  tag: "v0.0.77"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: "saasglue-agent"
+
+rbac:
+  # Specifies whether RBAC fules should be created
+  # binding SaaSGlue service account to a role
+  # that allows SaaSGlue Agent pods to query the K8s API
+  create: true
+
+auth:
+  # SaaSGlue Agent access key id
+  accessKeyId: ""
+
+  # SaaSGlue Agent access key secret
+  accessKeySecret: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  {}
+  # fsGroup: 2000
+
+securityContext:
+  {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+resources:
+  {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
