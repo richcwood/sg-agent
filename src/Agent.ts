@@ -1911,7 +1911,7 @@ export default class Agent {
 
   RunTask = async (task: TaskSchema) => {
     // this.LogDebug('Running task', { 'id': task.id });
-    console.log("Agent -> RunTask -> task -> ", util.inspect(task, false, null));
+    // console.log("Agent -> RunTask -> task -> ", util.inspect(task, false, null));
     let dateStarted = new Date().toISOString();
 
     let workingDirectory = process.cwd() + path.sep + SGUtils.makeid(10);
