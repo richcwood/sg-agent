@@ -2034,6 +2034,7 @@ export default class Agent {
         machineId: this.MachineId(),
         artifactsDownloadedSize: artifactsDownloadedSize,
       };
+      if (task.target == TaskDefTarget.AWS_LAMBDA) taskOutcome._teamId = task._teamId;
       taskOutcome = await this.RestAPICall(`taskOutcome/${task._taskOutcomeId}`, "PUT", {
         data: taskOutcome,
         retryWithBackoff: true,
