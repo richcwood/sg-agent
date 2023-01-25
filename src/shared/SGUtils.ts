@@ -46,6 +46,11 @@ export class SGUtils {
     });
   }
 
+  static errorToObj(e: any) {
+    if (e.constructor != Object) return {error: e.toString()};
+    return e;
+  }
+
   static async injectScripts(_teamId: string, script_code: string, scriptsToInject: any, fnLogError: any) {
     let newScript: string = script_code;
     let arrScriptsToInject: string[] = newScript.match(/@sgs?(\([^)]*\))/gi);
