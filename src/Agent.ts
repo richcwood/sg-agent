@@ -91,7 +91,7 @@ export default class Agent {
   private numLinesInTail: number = 5;
   private maxSizeLineInTail: number = 10240; //bytes
   private sendUpdatesInterval: number = 10000;
-  private queueCompleteMessages: any[] = [];
+  private queueAPICall: any[] = [];
   private offline: boolean = false;
   private mainProcessInterrupted: boolean = false;
   private lastStompConnectAttemptTime: number = 0;
@@ -217,7 +217,7 @@ export default class Agent {
       sysInfo: await this.GetSysInfo(),
     };
 
-    agentProperties = await this.RestAPICall(`agent`, "POST", null, agent_info);
+    agentProperties = await this.RestAPICall(`agent`, "POST", {data: agent_info, retryWithBackoff: true});
 
     return agentProperties;
   }
@@ -257,12 +257,9 @@ export default class Agent {
 
     let agentProperties: any = {};
     try {
-      agentProperties = await this.RestAPICall(
-        `agent/machineid/${this.MachineId()}`,
-        "GET",
-        {_teamId: this._teamId},
-        null
-      );
+      agentProperties = await this.RestAPICall(`agent/machineid/${this.MachineId()}`, "GET", {
+        headers: {_teamId: this._teamId},
+      });
     } catch (err) {
       if (err.response.status == 404) {
         this.logger.LogDebug(`Error getting agent properties`, {error: err.toString()});
@@ -283,7 +280,7 @@ export default class Agent {
 
     if (!this.areObjectsEqual(this.tags, agentProperties.tags)) {
       if (this.tags) {
-        await this.RestAPICall(`agent/tags/${this.instanceId.toHexString()}`, "PUT", null, {tags: this.tags});
+        await this.RestAPICall(`agent/tags/${this.instanceId.toHexString()}`, "PUT", {data: {tags: this.tags}});
       } else {
         this.tags = agentProperties.tags;
       }
@@ -296,12 +293,13 @@ export default class Agent {
           if (!(key in this.userConfig.propertyOverrides))
             this.userConfig.propertyOverrides[key] = agentProperties.propertyOverrides[key];
         }
-        await this.RestAPICall(
-          `agent/properties/${this.instanceId.toHexString()}`,
-          "PUT",
-          null,
-          this.userConfig.propertyOverrides
-        );
+        this.queueAPICall.push({
+          url: `agent/properties/${this.instanceId.toHexString()}`,
+          method: "PUT",
+          headers: null,
+          data: this.userConfig.propertyOverrides,
+        });
+
         // await this.UpdatePropertyOverridesAPI(this.userConfig.propertyOverrides)
       }
     }
@@ -373,7 +371,7 @@ export default class Agent {
 
     this.timeLastActive = Date.now();
     this.CheckInactiveTime();
-    this.SendCompleteMessages();
+    this.SendMessageToAPIAsync();
   }
 
   async SignalHandler(signal) {
@@ -400,7 +398,7 @@ export default class Agent {
       if (sleepCount >= maxSleepCount) break;
     }
 
-    while (this.queueCompleteMessages && this.queueCompleteMessages.length > 0) {
+    while (this.queueAPICall && this.queueAPICall.length > 0) {
       await SGUtils.sleep(500);
       sleepCount += 1;
       if (sleepCount >= maxSleepCount) break;
@@ -414,7 +412,7 @@ export default class Agent {
   async GetArtifact(artifactId: string, destPath: string, _teamId: string) {
     return new Promise(async (resolve, reject) => {
       try {
-        let artifact: any = await this.RestAPICall(`artifact/${artifactId}`, "GET", null, null);
+        let artifact: any = await this.RestAPICall(`artifact/${artifactId}`, "GET");
         const artifactPath = `${destPath}/${artifact.name}`;
         const writer = fs.createWriteStream(artifactPath);
 
@@ -565,55 +563,85 @@ export default class Agent {
     });
   }
 
-  async RestAPICall(url: string, method: string, headers: any = {}, data: any = {}) {
+  async RestAPICall(url: string, method: string, options: any = {}) {
     return new Promise(async (resolve, reject) => {
-      let fullurl = "";
-      try {
-        if (!this.token) await this.RestAPILogin();
+      const mergedOptions: any = {...{headers: {}, data: {}, retryWithBackoff: false}, ...options};
+      let waitTimesBackoff = [1000, 5000, 10000, 20000, 30000, 60000];
+      while (true) {
+        let fullurl = "";
+        try {
+          if (!this.token) await this.RestAPILogin();
 
-        let apiUrl = this.apiUrl;
-        let apiVersion = this.agentLogsAPIVersion;
+          let apiUrl = this.apiUrl;
+          let apiVersion = this.agentLogsAPIVersion;
 
-        const apiPort = this.apiPort;
+          const apiPort = this.apiPort;
 
-        if (apiPort != "") apiUrl += `:${apiPort}`;
-        fullurl = `${apiUrl}/api/${apiVersion}/${url}`;
+          if (apiPort != "") apiUrl += `:${apiPort}`;
+          fullurl = `${apiUrl}/api/${apiVersion}/${url}`;
 
-        const combinedHeaders: any = Object.assign(
-          {
-            Cookie: `Auth=${this.token};`,
-            _teamId: this._teamId,
-          },
-          headers
-        );
+          const combinedHeaders: any = Object.assign(
+            {
+              Cookie: `Auth=${this.token};`,
+              _teamId: this._teamId,
+            },
+            mergedOptions.headers
+          );
 
-        // this.logger.LogDebug(`RestAPICall`, {fullurl, method, combinedHeaders, data, token: this.token});
-        // console.log('Agent RestAPICall -> url ', fullurl, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.token);
+          // this.logger.LogDebug(`RestAPICall`, {fullurl, method, combinedHeaders, data, token: this.token});
+          // console.log('Agent RestAPICall -> url ', fullurl, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.token);
 
-        const response = await axios({
-          url: fullurl,
-          method: method,
-          responseType: "text",
-          headers: combinedHeaders,
-          data: data,
-        });
+          const response = await axios({
+            url: fullurl,
+            method: method,
+            responseType: "text",
+            headers: combinedHeaders,
+            data: mergedOptions.data,
+          });
 
-        resolve(response.data.data);
-      } catch (e) {
-        if (
-          e.response &&
-          e.response.data &&
-          e.response.data.errors &&
-          _.isArray(e.response.data.errors) &&
-          e.response.data.errors.length > 0 &&
-          e.response.data.errors[0].description == "The access token expired"
-        ) {
-          await this.RefreshAPIToken();
-          resolve(this.RestAPICall(url, method, headers, data));
-        } else {
-          this.logger.LogDebug(`RestAPICall error`, {error: e.toString(), url: fullurl});
-          e.message = `Error occurred calling ${method} on '${fullurl}': ${e.message}`;
-          reject(e);
+          resolve(response.data.data);
+          break;
+        } catch (e) {
+          if (
+            e.response &&
+            e.response.data &&
+            e.response.data.errors &&
+            _.isArray(e.response.data.errors) &&
+            e.response.data.errors.length > 0 &&
+            e.response.data.errors[0].description == "The access token expired"
+          ) {
+            await this.RefreshAPIToken();
+            resolve(
+              this.RestAPICall(url, method, {
+                headers: mergedOptions.headers,
+                data: mergedOptions.data,
+                retryWithBackoff: mergedOptions.retryWithBackoff,
+              })
+            );
+          } else {
+            if (mergedOptions.retryWithBackoff) {
+              const waitTime = waitTimesBackoff.shift() || 60000;
+              this.LogError(`Error sending message to API - retrying`, e.stack, {
+                method: "RestAPICall",
+                url: fullurl,
+                http_method: method,
+                error: e.toString(),
+                retry_wait_time: waitTime,
+              });
+              await SGUtils.sleep(waitTime);
+            } else {
+              this.logger.LogError(`Error sending message to API`, e.stack, {
+                method: "RestAPICall",
+                url: fullurl,
+                http_method: method,
+                data: mergedOptions.data,
+                error: e.toString(),
+              });
+              e.message = `Error occurred calling ${method} on '${fullurl}': ${e.message}`;
+              reject(e);
+              break;
+            }
+          }
         }
       }
     });
@@ -764,7 +792,7 @@ export default class Agent {
         offline: this.offline,
       };
 
-      await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, "PUT", null, heartbeat_info);
+      await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, "PUT", {data: heartbeat_info});
     } catch (e) {
       this.LogError(`Error sending disconnect message`, e.stack, {error: e.toString()});
     }
@@ -815,7 +843,7 @@ export default class Agent {
       }
 
       try {
-        let ret: any = await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, "PUT", null, heartbeat_info);
+        let ret: any = await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, "PUT", {data: heartbeat_info});
 
         if (ret.tasksToCancel) {
           this.LogDebug("Received tasks to cancel from heartbeat", {
@@ -877,7 +905,12 @@ export default class Agent {
               createdBy: this.MachineId(),
             };
 
-            await this.RestAPICall(`job`, "POST", {_jobDefId: this.inactiveAgentJob.id}, data);
+            this.queueAPICall.push({
+              url: `job`,
+              method: "POST",
+              headers: {_jobDefId: this.inactiveAgentJob.id},
+              data,
+            });
           } catch (e) {
             this.LogError("Error running inactive agent job", e.stack, {
               inactiveAgentJob: this.inactiveAgentJob,
@@ -895,28 +928,40 @@ export default class Agent {
     }
   }
 
-  async SendCompleteMessages() {
+  async SendMessageToAPIAsync() {
     // this.LogDebug('Checking message queue', {});
-    while (this.queueCompleteMessages.length > 0) {
-      const msg: any = this.queueCompleteMessages.shift();
+    let waitTimesBackoff = [1000, 5000, 10000, 20000, 30000, 60000];
+    while (this.queueAPICall.length > 0) {
+      const msg: any = this.queueAPICall.shift();
       try {
         // this.LogDebug('Sending queued message', { 'request': msg });
-        await this.RestAPICall(msg.url, msg.method, msg.headers, msg.data);
-        // this.queueCompleteMessages.shift();
+        await this.RestAPICall(msg.url, msg.method, {
+          header: msg.headers,
+          data: msg.data,
+        });
+        waitTimesBackoff = [1000, 5000, 10000, 20000, 30000, 60000];
+        // this.queueAPICall.shift();
         // this.LogDebug('Sent queued message', { 'request': msg });
       } catch (e) {
         if (!this.stopped) {
           if (e.response && e.response.data && e.response.data.statusCode) {
-            this.LogError(`Error sending complete message`, e.stack, {
+            this.LogError(`Error sending message to API`, e.stack, {
+              method: "SendMessageToAPIAsync",
               request: msg,
               response: e.response.data,
               error: e.toString(),
             });
-            // this.queueCompleteMessages.shift();
+            // this.queueAPICall.shift();
           } else {
-            this.LogError(`Error sending complete message`, e.stack, {request: msg, error: e.toString()});
-            this.queueCompleteMessages.unshift(msg);
-            await SGUtils.sleep(10000);
+            const waitTime = waitTimesBackoff.shift() || 60000;
+            this.LogError(`Error sending message to API - retrying`, e.stack, {
+              method: "SendMessageToAPIAsync",
+              request: msg,
+              error: e.toString(),
+              retry_wait_time: waitTime,
+            });
+            this.queueAPICall.unshift(msg);
+            await SGUtils.sleep(waitTime);
           }
         } else {
           break;
@@ -924,7 +969,7 @@ export default class Agent {
       }
     }
     setTimeout(() => {
-      this.SendCompleteMessages();
+      this.SendMessageToAPIAsync();
     }, 1000);
   }
 
@@ -1232,7 +1277,7 @@ export default class Agent {
 
         if (Object.keys(rtvUpdates).length > 0) {
           // console.log(`****************** taskOutcomeId -> ${params.taskOutcomeId}, runtimeVars -> ${JSON.stringify(rtvUpdates)}`);
-          params.appInst.queueCompleteMessages.push({
+          params.appInst.queueAPICall.push({
             url: `taskOutcome/${params.taskOutcomeId}`,
             method: "PUT",
             headers: null,
@@ -1279,7 +1324,7 @@ export default class Agent {
             lastUpdateId: params.updateId,
           };
           params.updateId += 1;
-          await params.appInst.RestAPICall(`stepOutcome/${params.stepOutcomeId}`, "PUT", null, updates);
+          await params.appInst.RestAPICall(`stepOutcome/${params.stepOutcomeId}`, "PUT", {data: updates});
 
           if (params.stdoutTruncated) break;
         }
@@ -1356,7 +1401,7 @@ export default class Agent {
             status: Enums.StepStatus.RUNNING,
             lastUpdateId: runParams.updateId,
           };
-          await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, "PUT", null, updates);
+          await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, "PUT", {data: updates});
           runParams.updateId += 1;
 
           if (step.lambdaRuntime.toLowerCase().startsWith("node")) {
@@ -1417,7 +1462,7 @@ export default class Agent {
             lambdaFileLoadedToSGAWS = true;
           }
         } else {
-          let artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, "GET", null, {_teamId});
+          let artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, "GET", {data: {_teamId}});
           lambdaCode.S3Bucket = step.s3Bucket;
 
           let s3Path = "";
@@ -1464,7 +1509,7 @@ export default class Agent {
           status: Enums.StepStatus.RUNNING,
           lastUpdateId: runParams.updateId,
         };
-        await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, "PUT", null, updates);
+        await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, "PUT", {data: updates});
         runParams.updateId += 1;
 
         let payload = {};
@@ -1837,7 +1882,7 @@ export default class Agent {
 
               if (Object.keys(rtvUpdates).length > 0) {
                 // console.log(`****************** taskOutcomeId -> ${taskOutcomeId}`);
-                await appInst.RestAPICall(`taskOutcome/${taskOutcomeId}`, "PUT", null, {runtimeVars: rtvUpdates});
+                await appInst.RestAPICall(`taskOutcome/${taskOutcomeId}`, "PUT", {data: {runtimeVars: rtvUpdates}});
               }
             }
 
@@ -1885,7 +1930,7 @@ export default class Agent {
                 lastUpdateId: updateId,
               };
               updateId += 1;
-              await appInst.RestAPICall(`stepOutcome/${stepOutcomeId}`, "PUT", null, updates);
+              await appInst.RestAPICall(`stepOutcome/${stepOutcomeId}`, "PUT", {data: updates});
 
               if (stdoutTruncated) break;
             }
@@ -1945,9 +1990,11 @@ export default class Agent {
       machineId: this.MachineId(),
       artifactsDownloadedSize: artifactsDownloadedSize,
     };
-    taskOutcome = <TaskOutcomeSchema>(
-      await this.RestAPICall(`taskOutcome/${task._taskOutcomeId}`, "PUT", null, taskOutcome)
-    );
+    taskOutcome = await this.RestAPICall(`taskOutcome/${task._taskOutcomeId}`, "PUT", {
+      data: taskOutcome,
+      retryWithBackoff: true,
+    });
+
     // console.log('taskOutcome -> POST -> ', util.inspect(taskOutcome, false, null));
     if (taskOutcome.status == Enums.TaskStatus.RUNNING) {
       let lastStepOutcome = undefined;
@@ -2059,7 +2106,9 @@ export default class Agent {
           stepOutcome.machineId = "lambda-executor";
         }
 
-        stepOutcome = <StepOutcomeSchema>await this.RestAPICall(`stepOutcome`, "POST", null, stepOutcome);
+        stepOutcome = <StepOutcomeSchema>(
+          await this.RestAPICall(`stepOutcome`, "POST", {data: stepOutcome, retryWithBackoff: true})
+        );
 
         // console.log('Agent -> RunTask -> RunStepAsync -> step -> ', util.inspect(step, false, null));
         let res: any;
@@ -2088,7 +2137,7 @@ export default class Agent {
         }
         // console.log("Agent -> RunTask -> RunStepAsync -> res -> ", util.inspect(res, false, null));
 
-        this.queueCompleteMessages.push({
+        this.queueAPICall.push({
           url: `stepOutcome/${stepOutcome.id}`,
           method: "PUT",
           headers: null,
@@ -2126,7 +2175,7 @@ export default class Agent {
 
       if (task.target == Enums.TaskDefTarget.AWS_LAMBDA) taskOutcomeUpdates._teamId = task._teamId;
       // console.log(`???????????????????\n\ntaskOutcomeId -> ${taskOutcome.id}\n\ntaskOutcome -> ${JSON.stringify(taskOutcome)}\n\ntask -> ${JSON.stringify(task)}\n\ntaskOutcomeUpdates -> ${JSON.stringify(taskOutcomeUpdates)}`);
-      this.queueCompleteMessages.push({
+      this.queueAPICall.push({
         url: `taskOutcome/${taskOutcome.id}`,
         method: "PUT",
         headers: null,
@@ -2141,40 +2190,23 @@ export default class Agent {
   };
 
   CompleteTaskGeneralErrorHandler = async (params: any) => {
+    // todo: get the taskoutcomeid from params
     try {
       const _teamId = params._teamId;
-
-      let taskOutcome: any = {
-        _teamId: _teamId,
-        _jobId: params._jobId,
-        _taskId: params.id,
-        _agentId: this.instanceId,
-        source: params.source,
-        sourceTaskRoute: params.sourceTaskRoute,
-        correlationId: params.correlationId,
-        dateStarted: new Date().toISOString(),
-        ipAddress: "",
-        machineId: "",
-        artifactsDownloadedSize: 0,
-        target: params.target,
-        runtimeVars: params.runtimeVars,
-        autoRestart: params.autoRestart,
-      };
-
-      taskOutcome = <TaskOutcomeSchema>await this.RestAPICall(`taskOutcome`, "POST", null, taskOutcome);
+      const taskOutcomeId = params._taskOutcomeId;
 
       let taskOutcomeUpdates: any = {runtimeVars: {route: "fail"}};
       taskOutcomeUpdates.status = Enums.TaskStatus.FAILED;
       taskOutcomeUpdates.failureCode = TaskFailureCode.AGENT_EXEC_ERROR;
       taskOutcomeUpdates.dateCompleted = new Date().toISOString();
-      this.queueCompleteMessages.push({
-        url: `taskOutcome/${taskOutcome.id}`,
+      this.queueAPICall.push({
+        url: `taskOutcome/${taskOutcomeId.id}`,
         method: "PUT",
         headers: null,
         data: taskOutcomeUpdates,
       });
 
-      delete runningProcesses[taskOutcome.id];
+      delete runningProcesses[taskOutcomeId.id];
     } catch (e) {
       this.LogError("Error in CompleteTaskGeneralErrorHandler", e.stack, {error: e.toString()});
     }
@@ -2261,7 +2293,12 @@ export default class Agent {
             status: Enums.TaskStatus.INTERRUPTED,
             runtimeVars: runtimeVars,
           };
-          await this.RestAPICall(`taskOutcome/${params.interruptTask.id}`, "PUT", null, taskOutcomeUpdate);
+          this.queueAPICall.push({
+            url: `taskOutcome/${params.interruptTask.id}`,
+            method: "PUT",
+            headers: null,
+            data: taskOutcomeUpdate,
+          });
         }
       }
 
@@ -2275,7 +2312,7 @@ export default class Agent {
           await SGUtils.sleep(5000);
         }
         for (let i = 0; i < 6; i++) {
-          if (!this.queueCompleteMessages || this.queueCompleteMessages.length <= 0) break;
+          if (!this.queueAPICall || this.queueAPICall.length <= 0) break;
           await SGUtils.sleep(5000);
         }
         this.offline = true;
