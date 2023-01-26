@@ -47,5 +47,12 @@
     "util": "0.11.1",
     "websocket": "1.0.31",
     "zip-a-folder": "0.0.12"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^5.49.0",
+    "@typescript-eslint/parser": "^5.49.0",
+    "eslint": "^8.32.0",
+    "eslint-plugin-prettier": "^4.2.1",
+    "eslint-plugin-vue": "^9.9.0"
   }
 }
