@@ -1,61 +1,59 @@
-import * as mongodb from 'mongodb';
-
+import * as mongodb from "mongodb";
 
 export class StepOutcomeSchema {
+  _id?: mongodb.ObjectId;
 
-    _id?: mongodb.ObjectId;
+  id?: mongodb.ObjectId;
 
-    id?: mongodb.ObjectId;
+  _teamId: mongodb.ObjectId;
 
-    _teamId: mongodb.ObjectId;
+  _jobId?: mongodb.ObjectId;
 
-    _jobId?: mongodb.ObjectId;
+  _stepId: mongodb.ObjectId;
 
-    _stepId: mongodb.ObjectId;
+  _taskOutcomeId: mongodb.ObjectId;
 
-    _taskOutcomeId: mongodb.ObjectId;
+  _invoiceId?: mongodb.ObjectId;
 
-    _invoiceId?: mongodb.ObjectId;
+  machineId: string;
 
-    machineId: string;
+  ipAddress: string;
 
-    ipAddress: string;    
+  name: string;
 
-    name: string;
+  source: number;
 
-    source: number;
+  runCode: string;
 
-    runCode: string;
+  runtimeVars?: any;
 
-    runtimeVars?: any;
+  stdout?: string;
 
-    stdout?: string;
+  stderr?: string;
 
-    stderr?: string;
+  exitCode?: number;
 
-    exitCode?: number;
+  signal?: number;
 
-    signal?: number;
+  status?: number;
 
-    status?: number;
+  dateStarted?: Date;
 
-    dateStarted?: Date;
+  dateCompleted?: Date;
 
-    dateCompleted?: Date;
+  tail?: string[];
 
-    tail?: string[];
+  lastUpdateId?: number;
 
-    lastUpdateId?: number;
+  archived?: boolean;
 
-    archived?: boolean;
+  lambdaDuration?: string;
 
-    lambdaDuration?: string;
+  lambdaBilledDuration?: string;
 
-    lambdaBilledDuration?: string;
+  lambdaMemSize?: string;
 
-    lambdaMemSize?: string;
+  lambdaMaxMemUsed?: string;
 
-    lambdaMaxMemUsed?: string;
-
-    lambdaInitDuration?: string;
-};
+  lambdaInitDuration?: string;
+}

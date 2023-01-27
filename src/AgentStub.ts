@@ -1,12 +1,12 @@
 import * as os from "os";
 import * as fs from "fs";
 import axios from "axios";
-import {spawn} from "child_process";
-import {AgentLogger} from "./shared/SGAgentLogger";
-import {SGUtils} from "./shared/SGUtils";
-import {LogLevel} from "./shared/Enums";
+import { spawn } from "child_process";
+import { AgentLogger } from "./shared/SGAgentLogger";
+import { SGUtils } from "./shared/SGUtils";
+import { LogLevel } from "./shared/Enums";
 import * as ipc from "node-ipc";
-import {IPCClient, IPCServer} from "./shared/Comm";
+import { IPCClient, IPCServer } from "./shared/Comm";
 import * as util from "util";
 import * as path from "path";
 import * as _ from "lodash";
@@ -36,11 +36,14 @@ export default class AgentStub {
 
     this.logDest = "file";
     if (params.hasOwnProperty("logDest")) this.logDest = params["logDest"];
-    if (params.hasOwnProperty("logLevel")) this.logLevel = parseInt(params["logLevel"]);
+    if (params.hasOwnProperty("logLevel"))
+      this.logLevel = parseInt(params["logLevel"]);
 
     const userConfig: any = this.getUserConfigValues();
-    if (process.env.SG_ACCESS_KEY_ID) params.accessKeyId = process.env.SG_ACCESS_KEY_ID;
-    if (userConfig.SG_ACCESS_KEY_ID) params.accessKeyId = userConfig.SG_ACCESS_KEY_ID;
+    if (process.env.SG_ACCESS_KEY_ID)
+      params.accessKeyId = process.env.SG_ACCESS_KEY_ID;
+    if (userConfig.SG_ACCESS_KEY_ID)
+      params.accessKeyId = userConfig.SG_ACCESS_KEY_ID;
 
     if (!params.accessKeyId) {
       console.log(
@@ -49,8 +52,10 @@ export default class AgentStub {
       process.exit(1);
     }
 
-    if (process.env.SG_ACCESS_KEY_SECRET) params.accessKeySecret = process.env.SG_ACCESS_KEY_SECRET;
-    if (userConfig.SG_ACCESS_KEY_SECRET) params.accessKeySecret = userConfig.SG_ACCESS_KEY_SECRET;
+    if (process.env.SG_ACCESS_KEY_SECRET)
+      params.accessKeySecret = process.env.SG_ACCESS_KEY_SECRET;
+    if (userConfig.SG_ACCESS_KEY_SECRET)
+      params.accessKeySecret = userConfig.SG_ACCESS_KEY_SECRET;
 
     if (!params.accessKeySecret) {
       console.log(
@@ -61,7 +66,8 @@ export default class AgentStub {
 
     if (this.env == "debug") {
       if (userConfig.debug) {
-        if (userConfig.debug.machineId) this.machineId = userConfig.debug.machineId;
+        if (userConfig.debug.machineId)
+          this.machineId = userConfig.debug.machineId;
         if (userConfig.debug.apiUrl) this.apiUrl = userConfig.debug.apiUrl;
       }
     }
@@ -113,7 +119,8 @@ export default class AgentStub {
             this.logger.uploadPort = this.params.apiPort;
           }
           if (message.propertyOverrides.agentLogsAPIVersion) {
-            this.params.agentLogsAPIVersion = message.propertyOverrides.agentLogsAPIVersion;
+            this.params.agentLogsAPIVersion =
+              message.propertyOverrides.agentLogsAPIVersion;
             this.logger.uploadAPIVersion = this.params.agentLogsAPIVersion;
           }
         }
@@ -141,11 +148,16 @@ export default class AgentStub {
 
   async SignalHandler(signal) {
     try {
-      const params: any = {signal: signal};
+      const params: any = { signal: signal };
       this.logger.LogDebug(`Sending message to agent`, params);
-      await ipc.of.SGAgentProc.emit(`sg-agent-launcher-msg-${this._teamId}`, params);
+      await ipc.of.SGAgentProc.emit(
+        `sg-agent-launcher-msg-${this._teamId}`,
+        params
+      );
     } catch (e) {
-      this.logger.LogError(`Error sending message to agent`, e.stack, {error: e.toString()});
+      this.logger.LogError(`Error sending message to agent`, e.stack, {
+        error: e.toString(),
+      });
     }
   }
 
@@ -219,13 +231,18 @@ export default class AgentStub {
     this._teamId = response.data.config3;
   }
 
-  async RestAPICall(url: string, method: string, headers: any = {}, data: any = {}) {
+  async RestAPICall(
+    url: string,
+    method: string,
+    headers: any = {},
+    data: any = {}
+  ) {
     return new Promise(async (resolve, reject) => {
       let fullurl = "";
       try {
         if (!this.params.token) await this.RestAPILogin();
         let apiUrl = this.apiUrl;
-        let apiVersion = this.params.agentLogsAPIVersion;
+        const apiVersion = this.params.agentLogsAPIVersion;
 
         const apiPort = this.params.apiPort;
 
@@ -241,7 +258,13 @@ export default class AgentStub {
         );
 
         // console.log('RestAPICall -> url ', url, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.params.token);
-        this.logger.LogDebug(`RestAPICall`, {fullurl, method, combinedHeaders, data, token: this.params.token});
+        this.logger.LogDebug(`RestAPICall`, {
+          fullurl,
+          method,
+          combinedHeaders,
+          data,
+          token: this.params.token,
+        });
 
         const response = await axios({
           url: fullurl,
@@ -251,8 +274,11 @@ export default class AgentStub {
           data: data,
         });
 
-        if (_.isArray(response.headers["set-cookie"]) && response.headers["set-cookie"].length > 0) {
-          let tmp = response.headers["set-cookie"][0].split(";");
+        if (
+          _.isArray(response.headers["set-cookie"]) &&
+          response.headers["set-cookie"].length > 0
+        ) {
+          const tmp = response.headers["set-cookie"][0].split(";");
           let auth: string = tmp[0];
           auth = auth.substring(5) + ";";
           this.params.token = auth;
@@ -266,12 +292,13 @@ export default class AgentStub {
           error.response.data.errors &&
           _.isArray(error.response.data.errors) &&
           error.response.data.errors.length > 0 &&
-          error.response.data.errors[0].description == "The access token expired"
+          error.response.data.errors[0].description ==
+            "The access token expired"
         ) {
           await this.RefreshAPIToken();
           resolve(this.RestAPICall(url, method, headers, data));
         } else {
-          let newError: any = {config: error.config};
+          let newError: any = { config: error.config };
           if (error.response) {
             newError = Object.assign(newError, {
               data: error.response.data,
@@ -282,7 +309,7 @@ export default class AgentStub {
           } else {
             this.logger.LogError(`RestAPICall error`, "", newError);
           }
-          reject(Object.assign(newError, {Error: error.message}));
+          reject(Object.assign(newError, { Error: error.message }));
         }
       }
     });
@@ -308,10 +335,14 @@ export default class AgentStub {
             {}
           );
         } else {
-          let errProperties = {};
+          const errProperties = {};
           if (e.code) errProperties["errno"] = e.code;
-          if (e.config && e.config.headers) errProperties["headers"] = e.config.headers;
-          this.logger.LogError(`Error in AgentLauncher.Start`, "", {errProperties, error: e.toString()});
+          if (e.config && e.config.headers)
+            errProperties["headers"] = e.config.headers;
+          this.logger.LogError(`Error in AgentLauncher.Start`, "", {
+            errProperties,
+            error: e.toString(),
+          });
         }
         await SGUtils.sleep(30000);
       }
@@ -321,8 +352,14 @@ export default class AgentStub {
   async SpawnAgentProcess(commandString: any, args: string[]) {
     return new Promise((resolve, reject) => {
       try {
-        this.logger.LogDebug("AgentLauncher running command", {commandString, args});
-        this.agentProc = spawn(commandString, args, {stdio: "inherit", shell: true});
+        this.logger.LogDebug("AgentLauncher running command", {
+          commandString,
+          args,
+        });
+        this.agentProc = spawn(commandString, args, {
+          stdio: "inherit",
+          shell: true,
+        });
 
         // this.agentProc.stdout.on('data', (data) => {
         //     try {
@@ -344,33 +381,46 @@ export default class AgentStub {
 
         this.agentProc.on("exit", (code) => {
           try {
-            resolve({code: code});
+            resolve({ code: code });
           } catch (e) {
-            this.logger.LogError("Error handling script exit", e.stack, {error: e.toString()});
+            this.logger.LogError("Error handling script exit", e.stack, {
+              error: e.toString(),
+            });
           }
         });
       } catch (e) {
-        this.logger.LogError(`Error running command`, e.stack, {error: e.toString()});
+        this.logger.LogError(`Error running command`, e.stack, {
+          error: e.toString(),
+        });
       }
     });
   }
 
-  async DownloadAgent_GetUrl(numTries: number = 0) {
+  async DownloadAgent_GetUrl(numTries = 0) {
     return new Promise(async (resolve, reject) => {
       while (true) {
         try {
-          let url = `agentDownload/agent/${this.MachineId()}/${this.params.agentPlatform}`;
+          let url = `agentDownload/agent/${this.MachineId()}/${
+            this.params.agentPlatform
+          }`;
           if (this.params.agentArch != "") url += `/${this.params.agentArch}`;
 
-          let agentDownloadUrl = await this.RestAPICall(url, "GET", {_teamId: this._teamId}, null);
-          this.logger.LogDebug(`Agent download url`, {url, agentDownloadUrl});
+          const agentDownloadUrl = await this.RestAPICall(
+            url,
+            "GET",
+            { _teamId: this._teamId },
+            null
+          );
+          this.logger.LogDebug(`Agent download url`, { url, agentDownloadUrl });
           resolve(agentDownloadUrl);
           break;
         } catch (err) {
           if (err && err.status) {
             if (err.status == 303) {
               if (++numTries > waitForAgentCreateMaxRetries) {
-                reject(`Exceeded max tries to get agent download url - restarting: ${err}`);
+                reject(
+                  `Exceeded max tries to get agent download url - restarting: ${err}`
+                );
                 break;
               } else {
                 await SGUtils.sleep(waitForAgentCreateInterval);
@@ -417,7 +467,8 @@ export default class AgentStub {
           });
         });
 
-        if (fs.existsSync(agentPathCompressed)) fs.unlinkSync(agentPathCompressed);
+        if (fs.existsSync(agentPathCompressed))
+          fs.unlinkSync(agentPathCompressed);
 
         fs.renameSync(agentPathUncompressed, this.agentPath);
 
@@ -431,7 +482,7 @@ export default class AgentStub {
   async RunAgent() {
     let res;
     try {
-      let cmdString = `"${this.agentPath}"`;
+      const cmdString = `"${this.agentPath}"`;
       if (fs.existsSync(this.agentPath)) {
         res = await this.SpawnAgentProcess(cmdString, [
           this.ipcServer.ipcPath,
@@ -450,12 +501,22 @@ export default class AgentStub {
         } else if (res.code == 97) {
           process.exit();
         } else {
-          logMsg = `Agent stopped (${util.inspect(res, false, null)}) - restarting`;
+          logMsg = `Agent stopped (${util.inspect(
+            res,
+            false,
+            null
+          )}) - restarting`;
           if (res.code != 0) {
-            this.logger.LogError(logMsg, "", {ExitCode: res.code, Result: util.inspect(res, false, null)});
+            this.logger.LogError(logMsg, "", {
+              ExitCode: res.code,
+              Result: util.inspect(res, false, null),
+            });
             if (fs.existsSync(this.agentPath)) fs.unlinkSync(this.agentPath);
           } else {
-            this.logger.LogInfo(logMsg, {ExitCode: res.code, Result: util.inspect(res, false, null)});
+            this.logger.LogInfo(logMsg, {
+              ExitCode: res.code,
+              Result: util.inspect(res, false, null),
+            });
           }
         }
       }
@@ -464,7 +525,9 @@ export default class AgentStub {
         this.Start();
       }, 5000);
     } catch (e) {
-      this.logger.LogError(`Error in AgentLauncher RunAgent'`, e.stack, {error: e.toString()});
+      this.logger.LogError(`Error in AgentLauncher RunAgent'`, e.stack, {
+        error: e.toString(),
+      });
       throw e;
     }
   }

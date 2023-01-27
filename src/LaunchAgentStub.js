@@ -17,11 +17,11 @@ const lockfile = require("proper-lockfile");
 
 process.on("unhandledRejection", (reason, p) => {
   console.log(
-    `AgentLauncher Unhandled Rejection - Promise: "${util.inspect(p, false, null)}", Reason: "${util.inspect(
-      reason,
+    `AgentLauncher Unhandled Rejection - Promise: "${util.inspect(
+      p,
       false,
       null
-    )}"`
+    )}", Reason: "${util.inspect(reason, false, null)}"`
   );
 });
 

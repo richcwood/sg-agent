@@ -1,8 +1,6 @@
-import * as mongodb from 'mongodb';
-
+import * as mongodb from "mongodb";
 
 export class StepSchema {
-
   _id?: mongodb.ObjectId;
 
   id?: mongodb.ObjectId;
@@ -34,7 +32,7 @@ export class StepSchema {
   lambdaTimeout?: number;
 
   lambdaZipfile?: string;
-  
+
   lambdaFunctionHandler?: string;
 
   lambdaRole?: string;
@@ -43,5 +41,5 @@ export class StepSchema {
 
   lambdaAWSRegion?: string;
 
-  lambdaDependencies? : string;
-};
+  lambdaDependencies?: string;
+}
