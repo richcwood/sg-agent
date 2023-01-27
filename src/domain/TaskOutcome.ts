@@ -1,39 +1,37 @@
-import * as mongodb from 'mongodb';
-
+import * as mongodb from "mongodb";
 
 export class TaskOutcomeSchema {
+  _id?: mongodb.ObjectId;
 
-    _id?: mongodb.ObjectId;
+  id?: mongodb.ObjectId;
 
-    id?: mongodb.ObjectId;
+  _teamId: mongodb.ObjectId;
 
-    _teamId: mongodb.ObjectId;
+  _jobId?: mongodb.ObjectId;
 
-    _jobId?: mongodb.ObjectId;
+  _taskId: mongodb.ObjectId;
 
-    _taskId: mongodb.ObjectId;
+  _agentId: mongodb.ObjectId;
 
-    _agentId: mongodb.ObjectId;
+  target: number;
 
-    target: number;
+  status?: number;
 
-    status?: number;
+  source: number;
 
-    source: number;
+  correlationId?: string;
 
-    correlationId?: string;
+  failureCode?: number;
 
-    failureCode?: number;
+  dateStarted: Date;
 
-    dateStarted: Date;
+  dateCompleted?: Date;
 
-    dateCompleted?: Date;
+  ipAddress: string;
 
-    ipAddress: string;
+  machineId: string;
 
-    machineId: string;
+  artifactsDownloadedSize: number;
 
-    artifactsDownloadedSize: number;
-
-    autoRestart: boolean;
-};
+  autoRestart: boolean;
+}

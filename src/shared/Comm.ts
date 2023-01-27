@@ -1,5 +1,4 @@
-import * as ipc from 'node-ipc';
-
+import * as ipc from "node-ipc";
 
 class IPCServer {
   public ipcPath: string;
@@ -9,11 +8,10 @@ class IPCServer {
     this.ipcPath = `/tmp/app.${appId}.${ipc.config.id}`;
     ipc.config.retry = 1500;
     ipc.config.silent = true;
-    ipc.serve(this.ipcPath, () => ipc.server.on(channel, cb))
+    ipc.serve(this.ipcPath, () => ipc.server.on(channel, cb));
     ipc.server.start();
   }
 }
-
 
 class IPCClient {
   private serverIPCId: string;
@@ -23,7 +21,14 @@ class IPCClient {
   private fnOnDestroy: any;
   private fnOnDisconnect: any;
 
-  constructor(serverIPCId: string, channel: string, ipcPath: string, fnOnError: any, fnOnDestroy: any, fnOnDisconnect: any) {
+  constructor(
+    serverIPCId: string,
+    channel: string,
+    ipcPath: string,
+    fnOnError: any,
+    fnOnDestroy: any,
+    fnOnDisconnect: any
+  ) {
     this.serverIPCId = serverIPCId;
     this.channel = channel;
     this.ipcPath = ipcPath;
@@ -57,8 +62,8 @@ class IPCClient {
         reject(e);
       }
     });
-  }  
+  }
 }
 
-export { IPCServer }
-export { IPCClient }
+export { IPCServer };
+export { IPCClient };

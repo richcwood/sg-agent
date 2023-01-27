@@ -1,7 +1,7 @@
 import * as _ from "lodash";
 
-import {zip} from "zip-a-folder";
-import {exec} from "child_process";
+import { zip } from "zip-a-folder";
+import { exec } from "child_process";
 
 import * as AWS from "aws-sdk";
 import * as compressing from "compressing";
@@ -9,7 +9,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
-import {AgentLogger} from "./SGAgentLogger";
+import { AgentLogger } from "./SGAgentLogger";
 
 AWS.config.apiVersions = {
   lambda: "2015-03-31",
@@ -25,12 +25,13 @@ export class SGUtils {
     return Buffer.from(b64Encoded, "base64").toString("utf8");
   }
 
-  static makeid(len: number = 5, lettersOnly: boolean = false) {
-    var text = "";
+  static makeid(len = 5, lettersOnly = false) {
+    let text = "";
     let possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     if (!lettersOnly) possible += "0123456789";
 
-    for (let i = 0; i < len; i++) text += possible.charAt(Math.floor(Math.random() * possible.length));
+    for (let i = 0; i < len; i++)
+      text += possible.charAt(Math.floor(Math.random() * possible.length));
 
     return text;
   }
@@ -46,22 +47,43 @@ export class SGUtils {
     });
   }
 
-  static async injectScripts(_teamId: string, script_code: string, scriptsToInject: any, fnLogError: any) {
+  static async injectScripts(
+    _teamId: string,
+    script_code: string,
+    scriptsToInject: any,
+    fnLogError: any
+  ) {
     let newScript: string = script_code;
-    let arrScriptsToInject: string[] = newScript.match(/@sgs?(\([^)]*\))/gi);
+    const arrScriptsToInject: string[] = newScript.match(/@sgs?(\([^)]*\))/gi);
     if (arrScriptsToInject) {
       // replace runtime variables in script
       for (let i = 0; i < arrScriptsToInject.length; i++) {
-        let found: boolean = false;
+        let found = false;
         try {
-          let injectScriptKey = arrScriptsToInject[i].substr(5, arrScriptsToInject[i].length - 6);
-          if (injectScriptKey.substr(0, 1) === '"' && injectScriptKey.substr(injectScriptKey.length - 1, 1) === '"')
+          let injectScriptKey = arrScriptsToInject[i].substr(
+            5,
+            arrScriptsToInject[i].length - 6
+          );
+          if (
+            injectScriptKey.substr(0, 1) === '"' &&
+            injectScriptKey.substr(injectScriptKey.length - 1, 1) === '"'
+          )
             injectScriptKey = injectScriptKey.slice(1, -1);
           if (injectScriptKey in scriptsToInject) {
-            let injectScriptVal = SGUtils.atob(scriptsToInject[injectScriptKey]);
+            const injectScriptVal = SGUtils.atob(
+              scriptsToInject[injectScriptKey]
+            );
             if (injectScriptVal) {
-              newScript = newScript.replace(`${arrScriptsToInject[i]}`, `${injectScriptVal}`);
-              newScript = await SGUtils.injectScripts(_teamId, newScript, scriptsToInject, fnLogError);
+              newScript = newScript.replace(
+                `${arrScriptsToInject[i]}`,
+                `${injectScriptVal}`
+              );
+              newScript = await SGUtils.injectScripts(
+                _teamId,
+                newScript,
+                scriptsToInject,
+                fnLogError
+              );
               found = true;
             }
           }
@@ -70,10 +92,14 @@ export class SGUtils {
             newScript = newScript.replace(`${arrScriptsToInject[i]}`, "");
           }
         } catch (e) {
-          fnLogError(`Error replacing script @sgs capture for string`, e.stack, {
-            capture: arrScriptsToInject[i],
-            error: e.toString(),
-          });
+          fnLogError(
+            `Error replacing script @sgs capture for string`,
+            e.stack,
+            {
+              capture: arrScriptsToInject[i],
+              error: e.toString(),
+            }
+          );
         }
       }
     }
@@ -84,7 +110,8 @@ export class SGUtils {
   static getConfigFilePath() {
     let configPath = process.cwd();
     if (process.platform.indexOf("win") == 0) {
-      if (configPath == "C:\\Windows\\system32") configPath = path.dirname(process.execPath);
+      if (configPath == "C:\\Windows\\system32")
+        configPath = path.dirname(process.execPath);
     } else if (process.platform.indexOf("darwin") >= 0) {
       if (!fs.existsSync(path.join(configPath, "sg.cfg"))) {
         const daemonConfigPath = path.join(os.homedir(), ".saasglue");
@@ -105,8 +132,8 @@ export class SGUtils {
   }
 
   static getIpAddress() {
-    let arrIPAddresses = [];
-    let ifaces = os.networkInterfaces();
+    const arrIPAddresses = [];
+    const ifaces = os.networkInterfaces();
 
     Object.keys(ifaces).forEach(function (ifname) {
       ifaces[ifname].forEach(function (iface) {
@@ -126,14 +153,14 @@ export class SGUtils {
   static async RunCommand(commandString: any, options: any) {
     return new Promise((resolve, reject) => {
       try {
-        let stdout: string = "";
-        let stderr: string = "";
+        let stdout = "";
+        let stderr = "";
 
-        let cmd: any = exec(commandString, options);
+        const cmd: any = exec(commandString, options);
 
         cmd.stdout.on("data", (data) => {
           try {
-            let str = data.toString();
+            const str = data.toString();
             stdout += str;
           } catch (e) {
             throw e;
@@ -150,7 +177,7 @@ export class SGUtils {
 
         cmd.on("exit", (code) => {
           try {
-            resolve({code: code, stdout: stdout, stderr: stderr});
+            resolve({ code: code, stdout: stdout, stderr: stderr });
           } catch (e) {
             throw e;
           }
@@ -225,11 +252,11 @@ export class SGUtils {
     fnOnLogEvents: any
   ) => {
     return new Promise(async (resolve, reject) => {
-      let cwl = new AWS.CloudWatchLogs();
+      const cwl = new AWS.CloudWatchLogs();
 
-      const logGroupName: string = `/aws/lambda/${lambdaFnName}`;
+      const logGroupName = `/aws/lambda/${lambdaFnName}`;
 
-      let describeLogParams: any = {
+      const describeLogParams: any = {
         logGroupName,
         descending: true,
         orderBy: "LastEventTime",
@@ -237,15 +264,19 @@ export class SGUtils {
 
       const maxTries = 10;
       let numTries = 0;
-      let logStreamName: string = "";
+      let logStreamName = "";
       while (numTries < maxTries && !runParams.runLambdaFinished) {
         logStreamName = await new Promise((resolve, reject) => {
           cwl.describeLogStreams(describeLogParams, function (err, data) {
             if (err) {
               if (err.message != "The specified log group does not exist.")
-                logger.LogError("Error in GetCloudWatchLogsEvents.describeLogStreams", err.stack, {
-                  error: err.toString(),
-                });
+                logger.LogError(
+                  "Error in GetCloudWatchLogsEvents.describeLogStreams",
+                  err.stack,
+                  {
+                    error: err.toString(),
+                  }
+                );
               return resolve("");
             }
 
@@ -273,8 +304,8 @@ export class SGUtils {
 
       // console.log('******** GetCloudWatchLogsEvents -> logStreamName -> ', logStreamName);
 
-      let nextToken = undefined;
-      let getLogEventsParams: any = {
+      const nextToken = undefined;
+      const getLogEventsParams: any = {
         logGroupName,
         logStreamName,
         startFromHead: true,
@@ -283,21 +314,29 @@ export class SGUtils {
       };
 
       while (true) {
-        let res: any = await new Promise<null | any>((resolve, reject) => {
+        const res: any = await new Promise<null | any>((resolve, reject) => {
           cwl.getLogEvents(getLogEventsParams, async function (err, data) {
             if (err) {
-              logger.LogError("Error in GetCloudWatchLogsEvents.getLogEvents", err.stack, {error: err.toString()});
+              logger.LogError(
+                "Error in GetCloudWatchLogsEvents.getLogEvents",
+                err.stack,
+                { error: err.toString() }
+              );
               if (err.message == "Rate exceeded") await SGUtils.sleep(5000);
               return resolve(null);
             }
-            if (data.events) return resolve({events: data.events, nextToken: data.nextForwardToken});
+            if (data.events)
+              return resolve({
+                events: data.events,
+                nextToken: data.nextForwardToken,
+              });
             return resolve(null);
           });
         });
 
         if (res && res.events.length > 0) {
           fnOnLogEvents(res.events);
-          let reachedLogEnd: boolean = false;
+          let reachedLogEnd = false;
           for (let i = 0; i < res.events.length; i++) {
             if (res.events[i].message.startsWith("REPORT RequestId:")) {
               reachedLogEnd = true;
@@ -328,14 +367,23 @@ export class SGUtils {
         const indexFilePath = workingDir + path.sep + "index.js";
         const runFilePath = workingDir + path.sep + lambdaFnName + ".js";
 
-        const lstLambdaDependencies = lambdaDependencies.split(";").filter((li) => li.trim());
+        const lstLambdaDependencies = lambdaDependencies
+          .split(";")
+          .filter((li) => li.trim());
         if (lstLambdaDependencies.length > 0) {
-          let res: any = await SGUtils.RunCommand(`npm init -y`, {cwd: workingDir});
+          const res: any = await SGUtils.RunCommand(`npm init -y`, {
+            cwd: workingDir,
+          });
           if (res.code != 0)
-            throw new Error(`Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
+            throw new Error(
+              `Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`
+            );
 
           for (let i = 0; i < lstLambdaDependencies.length; i++) {
-            let res: any = await SGUtils.RunCommand(`npm i --save ${lstLambdaDependencies[i]}`, {cwd: workingDir});
+            const res: any = await SGUtils.RunCommand(
+              `npm i --save ${lstLambdaDependencies[i]}`,
+              { cwd: workingDir }
+            );
             if (res.code != 0) {
               throw new Error(
                 `Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`
@@ -387,7 +435,9 @@ exports.handler = async (event, context) => {
 
         fs.writeFileSync(runFilePath, script);
 
-        const compressedFilePath: string = await SGUtils.ZipFolder(path.dirname(indexFilePath));
+        const compressedFilePath: string = await SGUtils.ZipFolder(
+          path.dirname(indexFilePath)
+        );
         resolve(compressedFilePath);
       } catch (e) {
         reject(e);
@@ -406,10 +456,15 @@ exports.handler = async (event, context) => {
         const indexFilePath = workingDir + path.sep + "lambda_function.py";
         const runFilePath = workingDir + path.sep + lambdaFnName + ".py";
 
-        const lstLambdaDependencies = lambdaDependencies.split(";").filter((li) => li.trim());
+        const lstLambdaDependencies = lambdaDependencies
+          .split(";")
+          .filter((li) => li.trim());
         if (lstLambdaDependencies.length > 0) {
           for (let i = 0; i < lstLambdaDependencies.length; i++) {
-            let res: any = await SGUtils.RunCommand(`pip install ${lstLambdaDependencies[i]} -t .`, {cwd: workingDir});
+            const res: any = await SGUtils.RunCommand(
+              `pip install ${lstLambdaDependencies[i]} -t .`,
+              { cwd: workingDir }
+            );
             if (res.code != 0) {
               throw new Error(
                 `Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`
@@ -431,7 +486,9 @@ def lambda_handler(event, context):
 
         fs.writeFileSync(runFilePath, script);
 
-        const compressedFilePath: string = await SGUtils.ZipFolder(path.dirname(indexFilePath));
+        const compressedFilePath: string = await SGUtils.ZipFolder(
+          path.dirname(indexFilePath)
+        );
         resolve(compressedFilePath);
       } catch (e) {
         reject(e);
@@ -450,16 +507,25 @@ def lambda_handler(event, context):
         const indexFilePath = workingDir + path.sep + "lambda_function.rb";
         const runFilePath = workingDir + path.sep + lambdaFnName + ".rb";
 
-        const lstLambdaDependencies = lambdaDependencies.split(";").filter((li) => li.trim());
+        const lstLambdaDependencies = lambdaDependencies
+          .split(";")
+          .filter((li) => li.trim());
         if (lstLambdaDependencies.length > 0) {
-          let res: any = await SGUtils.RunCommand(`bundle init`, {cwd: workingDir});
+          let res: any = await SGUtils.RunCommand(`bundle init`, {
+            cwd: workingDir,
+          });
           if (res.code != 0)
-            throw new Error(`Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
+            throw new Error(
+              `Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`
+            );
 
           for (let i = 0; i < lstLambdaDependencies.length; i++) {
-            let res: any = await SGUtils.RunCommand(`bundle add ${lstLambdaDependencies[i]} --skip-install`, {
-              cwd: workingDir,
-            });
+            const res: any = await SGUtils.RunCommand(
+              `bundle add ${lstLambdaDependencies[i]} --skip-install`,
+              {
+                cwd: workingDir,
+              }
+            );
             if (res.code != 0) {
               throw new Error(
                 `Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`
@@ -467,9 +533,13 @@ def lambda_handler(event, context):
             }
           }
 
-          res = await SGUtils.RunCommand(`bundle install --path ./`, {cwd: workingDir});
+          res = await SGUtils.RunCommand(`bundle install --path ./`, {
+            cwd: workingDir,
+          });
           if (res.code != 0)
-            throw new Error(`Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
+            throw new Error(
+              `Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`
+            );
         }
 
         const code = `
@@ -484,7 +554,9 @@ end
 
         fs.writeFileSync(runFilePath, script);
 
-        const compressedFilePath: string = await SGUtils.ZipFolder(path.dirname(indexFilePath));
+        const compressedFilePath: string = await SGUtils.ZipFolder(
+          path.dirname(indexFilePath)
+        );
         resolve(compressedFilePath);
       } catch (e) {
         reject(e);
@@ -494,11 +566,11 @@ end
 
   static DeleteCloudWatchLogsEvents = async (lambdaFnName: string) => {
     return new Promise(async (resolve, reject) => {
-      let cwl = new AWS.CloudWatchLogs();
+      const cwl = new AWS.CloudWatchLogs();
 
-      const logGroupName: string = `/aws/lambda/${lambdaFnName}`;
+      const logGroupName = `/aws/lambda/${lambdaFnName}`;
 
-      let deleteLogParams: any = {
+      const deleteLogParams: any = {
         logGroupName,
       };
 
@@ -527,7 +599,7 @@ end
     handler: string
   ) => {
     return new Promise(async (resolve, reject) => {
-      var params: any = {
+      const params: any = {
         Description: `Lambda function ${lambdaFnName}`,
         FunctionName: lambdaFnName,
         Handler: handler,
@@ -553,7 +625,7 @@ end
 
       AWS.config.region = awsRegion;
 
-      const lambda = new AWS.Lambda({maxRetries: 10});
+      const lambda = new AWS.Lambda({ maxRetries: 10 });
       lambda.createFunction(params, async function (err, data) {
         if (err) {
           reject(err);
@@ -562,8 +634,8 @@ end
         let tryCount = 0;
         while (true) {
           tryCount += 1;
-          let lambdaFn = await new Promise(async (resolve, reject) => {
-            lambda.getFunction({FunctionName: lambdaFnName}, function (e, d) {
+          const lambdaFn = await new Promise(async (resolve, reject) => {
+            lambda.getFunction({ FunctionName: lambdaFnName }, function (e, d) {
               if (e) reject(e);
               resolve(d);
             });
@@ -582,8 +654,13 @@ end
     });
   };
 
-  static RunAWSLambda = async (lambdaFnName: string, awsRegion: string, payload: any, cb: any) => {
-    var params = {
+  static RunAWSLambda = async (
+    lambdaFnName: string,
+    awsRegion: string,
+    payload: any,
+    cb: any
+  ) => {
+    const params = {
       FunctionName: lambdaFnName,
       Payload: JSON.stringify(payload),
     };
@@ -596,7 +673,7 @@ end
 
   static DeleteAWSLambda = async (lambdaFnName: string, awsRegion: string) => {
     return new Promise(async (resolve, reject) => {
-      var params: any = {
+      const params: any = {
         FunctionName: lambdaFnName,
       };
 
@@ -614,7 +691,7 @@ end
   };
 
   // try to convert a string in form key1=val1,key2=val2 etc. to a map
-  static TagsStringToMap = (input: string): {[key: string]: string} => {
+  static TagsStringToMap = (input: string): { [key: string]: string } => {
     const map = {};
 
     if (_.isString(input) && input.trim()) {
@@ -623,7 +700,11 @@ end
       try {
         items.map((item: string) => {
           const itemSplit = item.split("=");
-          if (itemSplit.length === 2 && itemSplit[0].trim() && itemSplit[1].trim()) {
+          if (
+            itemSplit.length === 2 &&
+            itemSplit[0].trim() &&
+            itemSplit[1].trim()
+          ) {
             map[itemSplit[0].trim()] = itemSplit[1].trim();
           } else {
             throw `Item entry not correct: ${item}`;

@@ -6,19 +6,19 @@ import * as fs from "fs";
 import * as fse from "fs-extra";
 import * as path from "path";
 import axios from "axios";
-import {AgentLogger} from "./shared/SGAgentLogger";
-import {StompConnector} from "./shared/StompLib";
-import {LogLevel} from "./shared/Enums";
-import {SGUtils} from "./shared/SGUtils";
-import {SGStrings} from "./shared/SGStrings";
+import { AgentLogger } from "./shared/SGAgentLogger";
+import { StompConnector } from "./shared/StompLib";
+import { LogLevel } from "./shared/Enums";
+import { SGUtils } from "./shared/SGUtils";
+import { SGStrings } from "./shared/SGStrings";
 import * as Enums from "./shared/Enums";
-import {TaskFailureCode} from "./shared/Enums";
-import {TaskSource} from "./shared/Enums";
-import {TaskDefTarget} from "./shared/Enums";
-import {TaskSchema} from "./domain/Task";
-import {StepSchema} from "./domain/Step";
-import {TaskOutcomeSchema} from "./domain/TaskOutcome";
-import {StepOutcomeSchema} from "./domain/StepOutcome";
+import { TaskFailureCode } from "./shared/Enums";
+import { TaskSource } from "./shared/Enums";
+import { TaskDefTarget } from "./shared/Enums";
+import { TaskSchema } from "./domain/Task";
+import { StepSchema } from "./domain/Step";
+import { TaskOutcomeSchema } from "./domain/TaskOutcome";
+import { StepOutcomeSchema } from "./domain/StepOutcome";
 import * as util from "util";
 import * as ipc from "node-ipc";
 import * as sysinfo from "systeminformation";
@@ -29,19 +29,22 @@ const moment = require("moment");
 const mtz = require("moment-timezone");
 import * as _ from "lodash";
 import * as AsyncLock from "async-lock";
-import {IPCClient, IPCServer} from "./shared/Comm";
+import { IPCClient, IPCServer } from "./shared/Comm";
 
 const version = "v0.0.80";
 const SG_AGENT_CONFIG_FILE_NAME = "sg.cfg";
 
-const regexStdoutRedirectFiles = RegExp("(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)", "g");
+const regexStdoutRedirectFiles = RegExp(
+  "(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)",
+  "g"
+);
 
-let runningProcesses: any = {};
+const runningProcesses: any = {};
 
-const lock = new AsyncLock({timeout: 5000});
-const lockConnectStomp: string = "lock_connect_stomp_key";
-const lockApiLogin: string = "lock_api_login_key";
-const lockRefreshToken: string = "lock_refresh_token_key";
+const lock = new AsyncLock({ timeout: 5000 });
+const lockConnectStomp = "lock_connect_stomp_key";
+const lockApiLogin = "lock_api_login_key";
+const lockRefreshToken = "lock_refresh_token_key";
 
 export default class Agent {
   private appName: string;
@@ -61,41 +64,41 @@ export default class Agent {
   private inactiveAgentQueueTTL: number;
   private tags: any = {};
   private instanceId: mongodb.ObjectId;
-  private ipAddress: string = "";
-  private timezone: string = "";
-  private stopped: boolean = false;
-  private stopping: boolean = false;
-  private updating: boolean = false;
-  private numActiveTasks: number = 0;
-  private maxActiveTasks: number = 10;
+  private ipAddress = "";
+  private timezone = "";
+  private stopped = false;
+  private stopping = false;
+  private updating = false;
+  private numActiveTasks = 0;
+  private maxActiveTasks = 10;
   private env: string;
   private logDest: string;
-  private trackSysInfo: boolean = false;
+  private trackSysInfo = false;
   private logLevel: LogLevel = LogLevel.WARNING;
-  private heartbeatInterval: number = 30000;
+  private heartbeatInterval = 30000;
   private token: string;
-  private tokenRefreshTime: number = 0;
+  private tokenRefreshTime = 0;
   private refreshToken: string;
   private accessKeyId: string;
   private accessKeySecret: string;
   private userConfig: any = {};
   private timeLastActive: number = Date.now();
-  private inactivePeriodWaitTime: number = 0;
+  private inactivePeriodWaitTime = 0;
   private inactiveAgentJob: any;
   private agentLauncherIPCPath: string;
   private ipcClient: any = undefined;
   private ipcServer: any = undefined;
-  private handleGeneralTasks: boolean = true;
-  private maxStdoutSize: number = 307200; // bytes
-  private maxStderrSize: number = 51200; // bytes
-  private numLinesInTail: number = 5;
-  private maxSizeLineInTail: number = 10240; //bytes
-  private sendUpdatesInterval: number = 10000;
+  private handleGeneralTasks = true;
+  private maxStdoutSize = 307200; // bytes
+  private maxStderrSize = 51200; // bytes
+  private numLinesInTail = 5;
+  private maxSizeLineInTail = 10240; //bytes
+  private sendUpdatesInterval = 10000;
   private queueCompleteMessages: any[] = [];
-  private offline: boolean = false;
-  private mainProcessInterrupted: boolean = false;
-  private lastStompConnectAttemptTime: number = 0;
-  private stompReconnectMinWaitTime: number = 10000;
+  private offline = false;
+  private mainProcessInterrupted = false;
+  private lastStompConnectAttemptTime = 0;
+  private stompReconnectMinWaitTime = 10000;
   public _teamId: string;
 
   private userConfigurableProperties: string[] = [
@@ -118,10 +121,14 @@ export default class Agent {
     this.appName = "Agent";
 
     if (process.env.SG_AGENT_CONFIG_PATH)
-      this.userConfigPath = path.join(process.env.SG_AGENT_CONFIG_PATH, SG_AGENT_CONFIG_FILE_NAME);
+      this.userConfigPath = path.join(
+        process.env.SG_AGENT_CONFIG_PATH,
+        SG_AGENT_CONFIG_FILE_NAME
+      );
     else this.userConfigPath = SGUtils.getConfigFilePath();
 
-    if (params.hasOwnProperty("logLevel")) this.logLevel = parseInt(params["logLevel"]);
+    if (params.hasOwnProperty("logLevel"))
+      this.logLevel = parseInt(params["logLevel"]);
 
     this.logDest = "file";
     if (params.hasOwnProperty("logDest")) this.logDest = params["logDest"];
@@ -140,11 +147,14 @@ export default class Agent {
 
     if ("maxActiveTasks" in params) this.maxActiveTasks = params.maxActiveTasks;
 
-    if ("inactivePeriodWaitTime" in params) this.inactivePeriodWaitTime = params.inactivePeriodWaitTime;
+    if ("inactivePeriodWaitTime" in params)
+      this.inactivePeriodWaitTime = params.inactivePeriodWaitTime;
 
-    if ("inactiveAgentJob" in params) this.inactiveAgentJob = params.inactiveAgentJob;
+    if ("inactiveAgentJob" in params)
+      this.inactiveAgentJob = params.inactiveAgentJob;
 
-    if ("handleGeneralTasks" in params) this.handleGeneralTasks = params.handleGeneralTasks;
+    if ("handleGeneralTasks" in params)
+      this.handleGeneralTasks = params.handleGeneralTasks;
 
     if ("trackSysInfo" in params) this.trackSysInfo = params.trackSysInfo;
 
@@ -156,8 +166,10 @@ export default class Agent {
     this.userConfig = this.getUserConfigValues();
 
     if (!this.accessKeyId) {
-      if (process.env.SG_ACCESS_KEY_ID) this.accessKeyId = process.env.SG_ACCESS_KEY_ID;
-      if (this.userConfig.SG_ACCESS_KEY_ID) this.accessKeyId = this.userConfig.SG_ACCESS_KEY_ID;
+      if (process.env.SG_ACCESS_KEY_ID)
+        this.accessKeyId = process.env.SG_ACCESS_KEY_ID;
+      if (this.userConfig.SG_ACCESS_KEY_ID)
+        this.accessKeyId = this.userConfig.SG_ACCESS_KEY_ID;
     }
 
     if (!this.accessKeyId) {
@@ -168,8 +180,10 @@ export default class Agent {
     }
 
     if (!this.accessKeySecret) {
-      if (process.env.SG_ACCESS_KEY_SECRET) this.accessKeySecret = process.env.SG_ACCESS_KEY_SECRET;
-      if (this.userConfig.SG_ACCESS_KEY_SECRET) this.accessKeySecret = this.userConfig.SG_ACCESS_KEY_SECRET;
+      if (process.env.SG_ACCESS_KEY_SECRET)
+        this.accessKeySecret = process.env.SG_ACCESS_KEY_SECRET;
+      if (this.userConfig.SG_ACCESS_KEY_SECRET)
+        this.accessKeySecret = this.userConfig.SG_ACCESS_KEY_SECRET;
     }
 
     if (!this.accessKeySecret) {
@@ -180,15 +194,20 @@ export default class Agent {
     }
 
     if (this.tags && Object.keys(this.tags).length < 1) {
-      if (process.env.SG_TAGS) this.tags = SGUtils.TagsStringToMap(process.env.SG_TAGS);
+      if (process.env.SG_TAGS)
+        this.tags = SGUtils.TagsStringToMap(process.env.SG_TAGS);
     }
 
     if (this.env != "unittest") {
       if ("tags" in this.userConfig) this.tags = this.userConfig["tags"];
       if ("propertyOverrides" in this.userConfig)
-        this.UpdatePropertyOverrides(this.userConfig["propertyOverrides"], "local");
+        this.UpdatePropertyOverrides(
+          this.userConfig["propertyOverrides"],
+          "local"
+        );
       if (this.env == "debug") {
-        if ("debug" in this.userConfig) this.UpdatePropertyOverrides(this.userConfig["debug"], "debug");
+        if ("debug" in this.userConfig)
+          this.UpdatePropertyOverrides(this.userConfig["debug"], "debug");
       }
     }
 
@@ -197,7 +216,7 @@ export default class Agent {
 
   async CreateAgentInAPI() {
     let agentProperties: any = {};
-    let agent_info: any = {
+    const agent_info: any = {
       id: this.InstanceId(),
       _teamId: this._teamId,
       machineId: this.MachineId(),
@@ -260,15 +279,19 @@ export default class Agent {
       agentProperties = await this.RestAPICall(
         `agent/machineid/${this.MachineId()}`,
         "GET",
-        {_teamId: this._teamId},
+        { _teamId: this._teamId },
         null
       );
     } catch (err) {
       if (err.response.status == 404) {
-        this.logger.LogDebug(`Error getting agent properties`, {error: err.toString()});
+        this.logger.LogDebug(`Error getting agent properties`, {
+          error: err.toString(),
+        });
         agentProperties = await this.CreateAgentInAPI();
       } else {
-        this.logger.LogError(`Error getting agent properties`, err.stack, {error: err.toString()});
+        this.logger.LogError(`Error getting agent properties`, err.stack, {
+          error: err.toString(),
+        });
         throw err;
       }
     }
@@ -283,18 +306,36 @@ export default class Agent {
 
     if (!this.areObjectsEqual(this.tags, agentProperties.tags)) {
       if (this.tags) {
-        await this.RestAPICall(`agent/tags/${this.instanceId.toHexString()}`, "PUT", null, {tags: this.tags});
+        await this.RestAPICall(
+          `agent/tags/${this.instanceId.toHexString()}`,
+          "PUT",
+          null,
+          { tags: this.tags }
+        );
       } else {
         this.tags = agentProperties.tags;
       }
     }
 
-    if (agentProperties.propertyOverrides && this.userConfig.propertyOverrides) {
-      if (!this.areObjectsEqual(this.userConfig.propertyOverrides, agentProperties.propertyOverrides)) {
-        for (let i = 0; i < Object.keys(agentProperties.propertyOverrides).length; i++) {
+    if (
+      agentProperties.propertyOverrides &&
+      this.userConfig.propertyOverrides
+    ) {
+      if (
+        !this.areObjectsEqual(
+          this.userConfig.propertyOverrides,
+          agentProperties.propertyOverrides
+        )
+      ) {
+        for (
+          let i = 0;
+          i < Object.keys(agentProperties.propertyOverrides).length;
+          i++
+        ) {
           const key = Object.keys(agentProperties.propertyOverrides)[i];
           if (!(key in this.userConfig.propertyOverrides))
-            this.userConfig.propertyOverrides[key] = agentProperties.propertyOverrides[key];
+            this.userConfig.propertyOverrides[key] =
+              agentProperties.propertyOverrides[key];
         }
         await this.RestAPICall(
           `agent/properties/${this.instanceId.toHexString()}`,
@@ -308,8 +349,10 @@ export default class Agent {
 
     if (this.env == "debug") {
       if ("debug" in this.userConfig) {
-        if ("stompUrl" in this.userConfig.debug) this.stompUrl = this.userConfig.debug.stompUrl;
-        if ("rmqAdminUrl" in this.userConfig.debug) this.rmqAdminUrl = this.userConfig.debug.rmqAdminUrl;
+        if ("stompUrl" in this.userConfig.debug)
+          this.stompUrl = this.userConfig.debug.stompUrl;
+        if ("rmqAdminUrl" in this.userConfig.debug)
+          this.rmqAdminUrl = this.userConfig.debug.rmqAdminUrl;
       }
     }
 
@@ -329,14 +372,23 @@ export default class Agent {
           `sg-agent-proc-${this._teamId}`,
           this.agentLauncherIPCPath,
           () => {
-            this.LogError("Error connecting to agent launcher - retrying", "", {});
+            this.LogError(
+              "Error connecting to agent launcher - retrying",
+              "",
+              {}
+            );
           },
           () => {
-            if (!this.stopped) this.LogError(`Failed to connect to agent launcher`, "", {});
+            if (!this.stopped)
+              this.LogError(`Failed to connect to agent launcher`, "", {});
           },
           async () => {
             if (this.stopped) return;
-            this.LogError(`Disconnected from agent launcher - attempting to reconnect in 10 seconds`, "", {});
+            this.LogError(
+              `Disconnected from agent launcher - attempting to reconnect in 10 seconds`,
+              "",
+              {}
+            );
             for (let i = 0; i < 10; i++) {
               if (this.stopped) break;
               await SGUtils.sleep(1000);
@@ -345,7 +397,11 @@ export default class Agent {
               try {
                 if (!this.stopped) await this.ipcClient.ConnectIPC();
               } catch (e) {
-                this.LogError(`Error connecting to agent launcher - restarting`, "", e);
+                this.LogError(
+                  `Error connecting to agent launcher - restarting`,
+                  "",
+                  e
+                );
                 try {
                   this.RunAgentStub();
                 } catch (e) {}
@@ -392,15 +448,18 @@ export default class Agent {
       }
     }
 
-    const maxSleepCount: number = 10;
-    let sleepCount: number = 0;
+    const maxSleepCount = 10;
+    let sleepCount = 0;
     while (Object.keys(runningProcesses).length > 0) {
       await SGUtils.sleep(500);
       sleepCount += 1;
       if (sleepCount >= maxSleepCount) break;
     }
 
-    while (this.queueCompleteMessages && this.queueCompleteMessages.length > 0) {
+    while (
+      this.queueCompleteMessages &&
+      this.queueCompleteMessages.length > 0
+    ) {
       await SGUtils.sleep(500);
       sleepCount += 1;
       if (sleepCount >= maxSleepCount) break;
@@ -414,7 +473,12 @@ export default class Agent {
   async GetArtifact(artifactId: string, destPath: string, _teamId: string) {
     return new Promise(async (resolve, reject) => {
       try {
-        let artifact: any = await this.RestAPICall(`artifact/${artifactId}`, "GET", null, null);
+        const artifact: any = await this.RestAPICall(
+          `artifact/${artifactId}`,
+          "GET",
+          null,
+          null
+        );
         const artifactPath = `${destPath}/${artifact.name}`;
         const writer = fs.createWriteStream(artifactPath);
 
@@ -438,20 +502,27 @@ export default class Agent {
         }
         resolve(artifactSize);
       } catch (e) {
-        this.logger.LogError(`Error downloading artifact`, e.stack, {artifactId, error: e.toString()});
+        this.logger.LogError(`Error downloading artifact`, e.stack, {
+          artifactId,
+          error: e.toString(),
+        });
         reject(e);
       }
     });
   }
 
-  async RestAPILogin(retryCount: number = 0) {
+  async RestAPILogin(retryCount = 0) {
     return new Promise<void>(async (resolve, reject) => {
       // console.log('Waiting to aquire lockRefreshToken');
       lock.acquire(
         lockApiLogin,
         async () => {
           try {
-            if (new Date().getTime() - this.tokenRefreshTime < 30000 && this.token) return;
+            if (
+              new Date().getTime() - this.tokenRefreshTime < 30000 &&
+              this.token
+            )
+              return;
 
             this.token = "";
 
@@ -490,7 +561,11 @@ export default class Agent {
           if (err) {
             retryCount += 1;
             if (retryCount > 5) {
-              this.LogError("Error acquiring api login lock in RestAPILogin", err.stack, {error: err.toString()});
+              this.LogError(
+                "Error acquiring api login lock in RestAPILogin",
+                err.stack,
+                { error: err.toString() }
+              );
               reject();
             } else {
               setTimeout(() => {
@@ -506,14 +581,18 @@ export default class Agent {
     });
   }
 
-  async RefreshAPIToken(retryCount: number = 0) {
+  async RefreshAPIToken(retryCount = 0) {
     return new Promise<void>(async (resolve, reject) => {
       // console.log('Waiting to aquire lockRefreshToken');
       lock.acquire(
         lockRefreshToken,
         async () => {
           try {
-            if (new Date().getTime() - this.tokenRefreshTime < 30000 && this.token) return;
+            if (
+              new Date().getTime() - this.tokenRefreshTime < 30000 &&
+              this.token
+            )
+              return;
 
             this.token = "";
 
@@ -538,7 +617,11 @@ export default class Agent {
             this.token = response.data.config1;
             this.refreshToken = response.data.config2;
           } catch (err) {
-            if (err.response && err.response.status && err.response.status == 401) {
+            if (
+              err.response &&
+              err.response.status &&
+              err.response.status == 401
+            ) {
               setImmediate(() => {
                 this.RestAPILogin(retryCount);
               });
@@ -549,7 +632,11 @@ export default class Agent {
           if (err) {
             retryCount += 1;
             if (retryCount > 5) {
-              this.LogError("Error acquiring api login lock in RefreshAPIToken", err.stack, {error: err.toString()});
+              this.LogError(
+                "Error acquiring api login lock in RefreshAPIToken",
+                err.stack,
+                { error: err.toString() }
+              );
               reject();
             } else {
               setTimeout(() => {
@@ -565,14 +652,19 @@ export default class Agent {
     });
   }
 
-  async RestAPICall(url: string, method: string, headers: any = {}, data: any = {}) {
+  async RestAPICall(
+    url: string,
+    method: string,
+    headers: any = {},
+    data: any = {}
+  ) {
     return new Promise(async (resolve, reject) => {
       let fullurl = "";
       try {
         if (!this.token) await this.RestAPILogin();
 
         let apiUrl = this.apiUrl;
-        let apiVersion = this.agentLogsAPIVersion;
+        const apiVersion = this.agentLogsAPIVersion;
 
         const apiPort = this.apiPort;
 
@@ -611,7 +703,10 @@ export default class Agent {
           await this.RefreshAPIToken();
           resolve(this.RestAPICall(url, method, headers, data));
         } else {
-          this.logger.LogDebug(`RestAPICall error`, {error: e.toString(), url: fullurl});
+          this.logger.LogDebug(`RestAPICall error`, {
+            error: e.toString(),
+            url: fullurl,
+          });
           e.message = `Error occurred calling ${method} on '${fullurl}': ${e.message}`;
           reject(e);
         }
@@ -623,7 +718,9 @@ export default class Agent {
     let userConfig = {};
     try {
       if (fs.existsSync(this.userConfigPath)) {
-        userConfig = JSON.parse(fs.readFileSync(this.userConfigPath).toString());
+        userConfig = JSON.parse(
+          fs.readFileSync(this.userConfigPath).toString()
+        );
       }
     } catch (e) {
       console.log(`Error getting user config values: ${e}`);
@@ -635,12 +732,13 @@ export default class Agent {
   updateUserConfigValues = (values: any) => {
     if (this.env == "unittest") return;
 
-    let userConfig: any = this.getUserConfigValues();
+    const userConfig: any = this.getUserConfigValues();
     if (values.propertyOverrides) {
       if (!userConfig.propertyOverrides) userConfig.propertyOverrides = {};
       for (let i = 0; i < Object.keys(values.propertyOverrides).length; i++) {
         const key = Object.keys(values.propertyOverrides)[i];
-        if (values.propertyOverrides[key] == null) delete userConfig.propertyOverrides[key];
+        if (values.propertyOverrides[key] == null)
+          delete userConfig.propertyOverrides[key];
         else userConfig.propertyOverrides[key] = values.propertyOverrides[key];
       }
     }
@@ -663,7 +761,7 @@ export default class Agent {
         areEqual = false;
       } else {
         for (let i = 0; i < first.length; i++) {
-          let foundTagMatch: boolean = false;
+          let foundTagMatch = false;
           const key = Object.keys(first[i])[0];
           for (let j = 0; j < second.length; j++) {
             if (key in second[j] && first[i][key] == second[j][key]) {
@@ -747,7 +845,10 @@ export default class Agent {
       return new Promise<void>(async (resolve, reject) => {
         try {
           this.LogDebug(`Sending message to agent launcher`, params);
-          await ipc.of.SGAgentLauncherProc.emit(`sg-agent-msg-${this._teamId}`, params);
+          await ipc.of.SGAgentLauncherProc.emit(
+            `sg-agent-msg-${this._teamId}`,
+            params
+          );
           resolve();
         } catch (e) {
           reject(e);
@@ -764,9 +865,16 @@ export default class Agent {
         offline: this.offline,
       };
 
-      await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, "PUT", null, heartbeat_info);
+      await this.RestAPICall(
+        `agent/heartbeat/${this.instanceId}`,
+        "PUT",
+        null,
+        heartbeat_info
+      );
     } catch (e) {
-      this.LogError(`Error sending disconnect message`, e.stack, {error: e.toString()});
+      this.LogError(`Error sending disconnect message`, e.stack, {
+        error: e.toString(),
+      });
     }
   }
 
@@ -778,7 +886,10 @@ export default class Agent {
     } catch (err) {
       retryCount += 1;
       if (retryCount > 10) {
-        this.LogWarning(`Error removing folder`, {path, error: err.toString()});
+        this.LogWarning(`Error removing folder`, {
+          path,
+          error: err.toString(),
+        });
       } else {
         setTimeout(() => {
           this.RemoveFolder(path, retryCount);
@@ -787,7 +898,7 @@ export default class Agent {
     }
   }
 
-  async SendHeartbeat(forceGetSysInfo: boolean = false, once: boolean = false) {
+  async SendHeartbeat(forceGetSysInfo = false, once = false) {
     try {
       if (this.stopped) return;
 
@@ -807,7 +918,10 @@ export default class Agent {
       }
 
       let cron: any;
-      if (process.platform.indexOf("darwin") >= 0 || process.platform.indexOf("linux") >= 0) {
+      if (
+        process.platform.indexOf("darwin") >= 0 ||
+        process.platform.indexOf("linux") >= 0
+      ) {
         cron = await this.GetCronTab();
         if (cron && cron.stdout) {
           heartbeat_info.cron = cron.stdout;
@@ -815,7 +929,12 @@ export default class Agent {
       }
 
       try {
-        let ret: any = await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, "PUT", null, heartbeat_info);
+        const ret: any = await this.RestAPICall(
+          `agent/heartbeat/${this.instanceId}`,
+          "PUT",
+          null,
+          heartbeat_info
+        );
 
         if (ret.tasksToCancel) {
           this.LogDebug("Received tasks to cancel from heartbeat", {
@@ -824,7 +943,11 @@ export default class Agent {
           for (let i = 0; i < ret.tasksToCancel.length; i++) {
             const taskToCancel = ret.tasksToCancel[i];
             const procToCancel = runningProcesses[taskToCancel];
-            if (procToCancel && typeof procToCancel == "object" && procToCancel.pid) {
+            if (
+              procToCancel &&
+              typeof procToCancel == "object" &&
+              procToCancel.pid
+            ) {
               procToCancel.kill();
             }
           }
@@ -844,7 +967,7 @@ export default class Agent {
     } catch (e) {
       if (!this.stopped) {
         delete e.request;
-        const errorData = {Error: e.message};
+        const errorData = { Error: e.message };
         if (e.response) errorData["Data"] = e.response.data;
         this.LogError(`Error sending heartbeat`, "", errorData);
         if (!once)
@@ -859,25 +982,36 @@ export default class Agent {
     try {
       if (this.numActiveTasks > 0) {
         this.timeLastActive = Date.now();
-      } else if (Date.now() - this.timeLastActive > this.inactivePeriodWaitTime) {
+      } else if (
+        Date.now() - this.timeLastActive >
+        this.inactivePeriodWaitTime
+      ) {
         this.timeLastActive = Date.now();
 
         if (this.inactiveAgentJob && this.inactiveAgentJob.id) {
           try {
-            this.LogDebug("Running inactive agent job", {inactiveAgentJob: this.inactiveAgentJob});
+            this.LogDebug("Running inactive agent job", {
+              inactiveAgentJob: this.inactiveAgentJob,
+            });
 
-            let runtimeVars: any = {};
-            if (this.inactiveAgentJob.runtimeVars) Object.assign(runtimeVars, this.inactiveAgentJob.runtimeVars);
+            const runtimeVars: any = {};
+            if (this.inactiveAgentJob.runtimeVars)
+              Object.assign(runtimeVars, this.inactiveAgentJob.runtimeVars);
             runtimeVars._agentId = {};
             runtimeVars._agentId["value"] = this.InstanceId();
 
-            let data = {
+            const data = {
               name: `Inactive agent job - ${this.MachineId()}`,
               runtimeVars,
               createdBy: this.MachineId(),
             };
 
-            await this.RestAPICall(`job`, "POST", {_jobDefId: this.inactiveAgentJob.id}, data);
+            await this.RestAPICall(
+              `job`,
+              "POST",
+              { _jobDefId: this.inactiveAgentJob.id },
+              data
+            );
           } catch (e) {
             this.LogError("Error running inactive agent job", e.stack, {
               inactiveAgentJob: this.inactiveAgentJob,
@@ -914,7 +1048,10 @@ export default class Agent {
             });
             // this.queueCompleteMessages.shift();
           } else {
-            this.LogError(`Error sending complete message`, e.stack, {request: msg, error: e.toString()});
+            this.LogError(`Error sending complete message`, e.stack, {
+              request: msg,
+              error: e.toString(),
+            });
             this.queueCompleteMessages.unshift(msg);
             await SGUtils.sleep(10000);
           }
@@ -930,12 +1067,12 @@ export default class Agent {
 
   ExtractRuntimeVarsFromString(line: string) {
     function fnRtVar(k, v) {
-      let rtVar = {};
+      const rtVar = {};
       if (k.startsWith("<<") && k.endsWith(">>")) {
         k = k.substring(2, k.length - 2);
-        rtVar[k] = {sensitive: true};
+        rtVar[k] = { sensitive: true };
       } else if (k != "route") {
-        rtVar[k] = {sensitive: false};
+        rtVar[k] = { sensitive: false };
       } else {
         rtVar[k] = {};
       }
@@ -945,7 +1082,7 @@ export default class Agent {
     }
 
     let runtimeVars: any = {};
-    let arrParams: string[] = line.match(/@sgo(\{[^}]*\})/gi);
+    const arrParams: string[] = line.match(/@sgo(\{[^}]*\})/gi);
     if (arrParams) {
       for (let i = 0; i < arrParams.length; i++) {
         let rtVar;
@@ -953,16 +1090,18 @@ export default class Agent {
         try {
           const newValJson = arrParams[i].substring(4);
           const newVal = JSON.parse(newValJson);
-          let [key, value] = Object.entries(newVal)[0];
+          const [key, value] = Object.entries(newVal)[0];
           rawValue = value;
           rtVar = fnRtVar(key, value);
           runtimeVars = Object.assign(runtimeVars, rtVar);
         } catch (e) {
           try {
             if (e.message.indexOf("Unexpected token \\") >= 0) {
-              const newValJson = arrParams[i].substring(4).replace(/\\+"/g, '"');
+              const newValJson = arrParams[i]
+                .substring(4)
+                .replace(/\\+"/g, '"');
               const newVal = JSON.parse(newValJson);
-              let [key, value] = Object.entries(newVal)[0];
+              const [key, value] = Object.entries(newVal)[0];
               rawValue = value;
               rtVar = fnRtVar(key, value);
               runtimeVars = Object.assign(runtimeVars, rtVar);
@@ -971,7 +1110,7 @@ export default class Agent {
               const s = arrParams[i].substring(4);
               let m;
               while ((m = re.exec(s)) != null) {
-                let key = m[1].trim();
+                const key = m[1].trim();
                 const val = m[2].trim();
                 rawValue = val;
                 rtVar = fnRtVar(key, val);
@@ -981,7 +1120,7 @@ export default class Agent {
           } catch (se) {}
         }
 
-        let [key, value] = Object.entries(rtVar)[0];
+        const [key, value] = Object.entries(rtVar)[0];
         if (value["sensitive"]) {
           const newVal = arrParams[i].replace(rawValue, `**${key}**`);
           line = line.replace(arrParams[i], newVal);
@@ -1010,19 +1149,19 @@ export default class Agent {
     filePath: string,
     task: any,
     saveOutput: boolean,
-    stdoutBytesAlreadyProcessed: number = 0,
-    stdoutTruncated: boolean = false
+    stdoutBytesAlreadyProcessed = 0,
+    stdoutTruncated = false
   ) {
-    let appInst = this;
+    const appInst = this;
     return new Promise((resolve, reject) => {
       try {
         let lineCount = 0;
-        let bytesRead: number = 0;
+        let bytesRead = 0;
 
-        let output: string = "";
-        let runtimeVars: any = {};
-        let lastXLines: string[] = [];
-        let s = fs
+        let output = "";
+        const runtimeVars: any = {};
+        const lastXLines: string[] = [];
+        const s = fs
           .createReadStream(filePath)
           .pipe(es.split())
           .pipe(
@@ -1037,25 +1176,36 @@ export default class Agent {
                 Object.assign(runtimeVars, rtv);
 
                 if (saveOutput && newLine) {
-                  newLine = appInst.ReplaceSensitiveRuntimeVarValuesInString(newLine, task.runtimeVars);
+                  newLine = appInst.ReplaceSensitiveRuntimeVarValuesInString(
+                    newLine,
+                    task.runtimeVars
+                  );
                   const strLenBytes = Buffer.byteLength(newLine, "utf8");
                   bytesRead += strLenBytes;
                   if (bytesRead > stdoutBytesAlreadyProcessed) {
                     if (!stdoutTruncated) {
-                      if (strLenBytes + stdoutBytesAlreadyProcessed < appInst.maxStdoutSize) {
+                      if (
+                        strLenBytes + stdoutBytesAlreadyProcessed <
+                        appInst.maxStdoutSize
+                      ) {
                         output += `${newLine}\n`;
                         stdoutBytesAlreadyProcessed += strLenBytes;
                       } else {
-                        output = truncate(output, appInst.maxStdoutSize) + "\n(truncated)\n";
+                        output =
+                          truncate(output, appInst.maxStdoutSize) +
+                          "\n(truncated)\n";
                         stdoutTruncated = true;
                       }
                     }
 
                     let lineForTail = newLine;
                     if (strLenBytes > appInst.maxSizeLineInTail)
-                      lineForTail = truncate(newLine, appInst.maxSizeLineInTail) + " (truncated)";
+                      lineForTail =
+                        truncate(newLine, appInst.maxSizeLineInTail) +
+                        " (truncated)";
                     lastXLines.push(lineForTail);
-                    if (lastXLines.length > appInst.numLinesInTail) lastXLines.shift();
+                    if (lastXLines.length > appInst.numLinesInTail)
+                      lastXLines.shift();
                   }
                 }
 
@@ -1063,11 +1213,19 @@ export default class Agent {
                 s.resume();
               })
               .on("error", function (err) {
-                reject(new Error(`Error reading stdout file '${filePath}' on line ${lineCount}: ${err}`));
+                reject(
+                  new Error(
+                    `Error reading stdout file '${filePath}' on line ${lineCount}: ${err}`
+                  )
+                );
               })
               .on("end", function () {
                 if (stdoutTruncated) output += "\n" + lastXLines.join("\n");
-                resolve({output: output, runtimeVars: runtimeVars, lastXLines: lastXLines});
+                resolve({
+                  output: output,
+                  runtimeVars: runtimeVars,
+                  lastXLines: lastXLines,
+                });
               })
           );
       } catch (e) {
@@ -1077,13 +1235,13 @@ export default class Agent {
   }
 
   async ParseScriptStderr(filePath: string, task: any) {
-    let appInst = this;
+    const appInst = this;
     return new Promise((resolve, reject) => {
       try {
         let lineCount = 0;
 
-        let output: string = "";
-        let s = fs
+        let output = "";
+        const s = fs
           .createReadStream(filePath)
           .pipe(es.split())
           .pipe(
@@ -1094,11 +1252,20 @@ export default class Agent {
 
                 lineCount += 1;
                 if (line) {
-                  line = appInst.ReplaceSensitiveRuntimeVarValuesInString(line, task.runtimeVars);
-                  if (Buffer.byteLength(output, "utf8") < appInst.maxStderrSize) {
+                  line = appInst.ReplaceSensitiveRuntimeVarValuesInString(
+                    line,
+                    task.runtimeVars
+                  );
+                  if (
+                    Buffer.byteLength(output, "utf8") < appInst.maxStderrSize
+                  ) {
                     output += `${line}\n`;
-                    if (Buffer.byteLength(output, "utf8") > appInst.maxStderrSize)
-                      output = truncate(output, appInst.maxStderrSize) + " (truncated)";
+                    if (
+                      Buffer.byteLength(output, "utf8") > appInst.maxStderrSize
+                    )
+                      output =
+                        truncate(output, appInst.maxStderrSize) +
+                        " (truncated)";
                   }
                 }
 
@@ -1106,10 +1273,14 @@ export default class Agent {
                 s.resume();
               })
               .on("error", function (err) {
-                reject(new Error(`Error reading stderr file '${filePath}' on line ${lineCount}: ${err}`));
+                reject(
+                  new Error(
+                    `Error reading stderr file '${filePath}' on line ${lineCount}: ${err}`
+                  )
+                );
               })
               .on("end", function () {
-                resolve({output: output});
+                resolve({ output: output });
               })
           );
       } catch (e) {
@@ -1119,51 +1290,54 @@ export default class Agent {
   }
 
   GetSysInfo = async () => {
-    let sysInfo: any = {};
-    let procs = await sysinfo.processes();
+    const sysInfo: any = {};
+    const procs = await sysinfo.processes();
     procs.list = procs.list
       .sort((a, b) => {
         return b.pcpu - a.pcpu;
       })
       .slice(0, 10);
-    let osInfo = await sysinfo.osInfo();
-    let cpuCurrentspeed = await sysinfo.cpuCurrentspeed();
-    let cpuTemperature = await sysinfo.cpuTemperature();
-    let currentLoad = await sysinfo.currentLoad();
-    let fsSize = await sysinfo.fsSize();
+    const osInfo = await sysinfo.osInfo();
+    const cpuCurrentspeed = await sysinfo.cpuCurrentspeed();
+    const cpuTemperature = await sysinfo.cpuTemperature();
+    const currentLoad = await sysinfo.currentLoad();
+    const fsSize = await sysinfo.fsSize();
     // let networkConnections = await sysinfo.networkConnections();
     // let users = await sysinfo.users();
-    let mem = await sysinfo.mem();
+    const mem = await sysinfo.mem();
     // let battery = await sysinfo.battery();
-    let inetLatency = await sysinfo.inetLatency();
-    let networkStats = await sysinfo.networkStats();
+    const inetLatency = await sysinfo.inetLatency();
+    const networkStats = await sysinfo.networkStats();
 
     let fsStats = null;
     let disksIO = null;
-    if (process.platform.indexOf("darwin") >= 0 || process.platform.indexOf("linux") >= 0) {
+    if (
+      process.platform.indexOf("darwin") >= 0 ||
+      process.platform.indexOf("linux") >= 0
+    ) {
       fsStats = await sysinfo.fsStats();
       disksIO = await sysinfo.disksIO();
     }
 
     Object.assign(
       sysInfo,
-      {osInfo: osInfo},
-      {time: sysinfo.time()},
-      {cpuCurrentspeed: cpuCurrentspeed},
-      {cpuTemperature: cpuTemperature},
-      {currentLoad: currentLoad},
-      {mem: mem},
-      {fsSize: fsSize},
-      {inetLatency: inetLatency},
-      {networkStats: networkStats},
-      {processes: procs}
+      { osInfo: osInfo },
+      { time: sysinfo.time() },
+      { cpuCurrentspeed: cpuCurrentspeed },
+      { cpuTemperature: cpuTemperature },
+      { currentLoad: currentLoad },
+      { mem: mem },
+      { fsSize: fsSize },
+      { inetLatency: inetLatency },
+      { networkStats: networkStats },
+      { processes: procs }
       // { networkConnections: networkConnections },
       // { users: users },
       // { battery: battery }
     );
 
-    if (fsStats) Object.assign(sysInfo, {fsStats: fsStats});
-    if (disksIO) Object.assign(sysInfo, {disksIO: disksIO});
+    if (fsStats) Object.assign(sysInfo, { fsStats: fsStats });
+    if (disksIO) Object.assign(sysInfo, { disksIO: disksIO });
 
     return sysInfo;
   };
@@ -1185,15 +1359,19 @@ export default class Agent {
         continue;
       }
 
-      let data: any[] = params.queueTail.splice(0);
+      const data: any[] = params.queueTail.splice(0);
       try {
-        let dataStrings: string[] = data.map((m) => m.message);
-        let dataAsString = dataStrings.join("");
-        const [rtv, newLine] = params.appInst.ExtractRuntimeVarsFromString(dataAsString);
-        let rtvUpdates = {};
+        const dataStrings: string[] = data.map((m) => m.message);
+        const dataAsString = dataStrings.join("");
+        const [rtv, newLine] =
+          params.appInst.ExtractRuntimeVarsFromString(dataAsString);
+        const rtvUpdates = {};
         for (let indexRTV = 0; indexRTV < Object.keys(rtv).length; indexRTV++) {
-          let key = Object.keys(rtv)[indexRTV];
-          if (!params.rtvCumulative[key] || params.rtvCumulative[key] != rtv[key]) {
+          const key = Object.keys(rtv)[indexRTV];
+          if (
+            !params.rtvCumulative[key] ||
+            params.rtvCumulative[key] != rtv[key]
+          ) {
             rtvUpdates[key] = rtv[key];
             params.rtvCumulative[key] = rtv[key];
           }
@@ -1207,23 +1385,33 @@ export default class Agent {
               const elem: string = elems[j];
               if (elem.startsWith("Duration: ")) {
                 try {
-                  params.lambdaDuration = Number(elem.split(":").slice(1, 3).join(" ").trim().split(" ")[0]);
+                  params.lambdaDuration = Number(
+                    elem.split(":").slice(1, 3).join(" ").trim().split(" ")[0]
+                  );
                 } catch (err) {}
               } else if (elem.startsWith("Billed Duration: ")) {
                 try {
-                  params.lambdaBilledDuration = Number(elem.split(":").slice(1, 3).join(" ").trim().split(" ")[0]);
+                  params.lambdaBilledDuration = Number(
+                    elem.split(":").slice(1, 3).join(" ").trim().split(" ")[0]
+                  );
                 } catch (err) {}
               } else if (elem.startsWith("Memory Size: ")) {
                 try {
-                  params.lambdaMemSize = Number(elem.split(":").slice(1, 3).join(" ").trim().split(" ")[0]);
+                  params.lambdaMemSize = Number(
+                    elem.split(":").slice(1, 3).join(" ").trim().split(" ")[0]
+                  );
                 } catch (err) {}
               } else if (elem.startsWith("Max Memory Used: ")) {
                 try {
-                  params.lambdaMaxMemUsed = Number(elem.split(":").slice(1, 3).join(" ").trim().split(" ")[0]);
+                  params.lambdaMaxMemUsed = Number(
+                    elem.split(":").slice(1, 3).join(" ").trim().split(" ")[0]
+                  );
                 } catch (err) {}
               } else if (elem.startsWith("Init Duration: ")) {
                 try {
-                  params.lambdaInitDuration = Number(elem.split(":").slice(1, 3).join(" ").trim().split(" ")[0]);
+                  params.lambdaInitDuration = Number(
+                    elem.split(":").slice(1, 3).join(" ").trim().split(" ")[0]
+                  );
                 } catch (err) {}
               }
             }
@@ -1236,32 +1424,46 @@ export default class Agent {
             url: `taskOutcome/${params.taskOutcomeId}`,
             method: "PUT",
             headers: null,
-            data: {_teamId: params._teamId, runtimeVars: rtvUpdates},
+            data: { _teamId: params._teamId, runtimeVars: rtvUpdates },
           });
         }
 
-        params.lastXLines = params.lastXLines.concat(dataStrings).slice(-params.appInst.numLinesInTail);
+        params.lastXLines = params.lastXLines
+          .concat(dataStrings)
+          .slice(-params.appInst.numLinesInTail);
         for (let i = 0; i < params.lastXLines.length; i++) {
-          if (Buffer.byteLength(params.lastXLines[i], "utf8") > params.appInst.maxSizeLineInTail)
-            params.lastXLines[i] = truncate(params.lastXLines[i], params.appInst.maxSizeLineInTail) + " (truncated)";
+          if (
+            Buffer.byteLength(params.lastXLines[i], "utf8") >
+            params.appInst.maxSizeLineInTail
+          )
+            params.lastXLines[i] =
+              truncate(params.lastXLines[i], params.appInst.maxSizeLineInTail) +
+              " (truncated)";
         }
 
         while (true) {
           if (dataStrings.length < 1) break;
 
-          let stdoutToUpload: string = "";
-          let countLinesToUpload: number = 0;
+          let stdoutToUpload = "";
+          let countLinesToUpload = 0;
           if (!params.stdoutTruncated) {
-            const maxStdoutUploadSize: number = 51200;
-            let stdoutBytesProcessedLocal: number = 0;
+            const maxStdoutUploadSize = 51200;
+            let stdoutBytesProcessedLocal = 0;
             for (let i = 0; i < dataStrings.length; i++) {
               const strLenBytes = Buffer.byteLength(dataStrings[i], "utf8");
-              if (params.stdoutBytesProcessed + strLenBytes > params.appInst.maxStdoutSize) {
-                stdoutToUpload += "\n(max stdout size exceeded - results truncated)\n";
+              if (
+                params.stdoutBytesProcessed + strLenBytes >
+                params.appInst.maxStdoutSize
+              ) {
+                stdoutToUpload +=
+                  "\n(max stdout size exceeded - results truncated)\n";
                 params.stdoutTruncated = true;
                 break;
               }
-              if (stdoutBytesProcessedLocal + strLenBytes > maxStdoutUploadSize) {
+              if (
+                stdoutBytesProcessedLocal + strLenBytes >
+                maxStdoutUploadSize
+              ) {
                 break;
               }
               stdoutToUpload += `${dataStrings[i]}\n`;
@@ -1279,12 +1481,19 @@ export default class Agent {
             lastUpdateId: params.updateId,
           };
           params.updateId += 1;
-          await params.appInst.RestAPICall(`stepOutcome/${params.stepOutcomeId}`, "PUT", null, updates);
+          await params.appInst.RestAPICall(
+            `stepOutcome/${params.stepOutcomeId}`,
+            "PUT",
+            null,
+            updates
+          );
 
           if (params.stdoutTruncated) break;
         }
       } catch (err) {
-        this.LogError(`Error handling stdout tail`, err.stack, {error: err.toString()});
+        this.LogError(`Error handling stdout tail`, err.stack, {
+          error: err.toString(),
+        });
         await SGUtils.sleep(1000);
       }
     }
@@ -1303,23 +1512,23 @@ export default class Agent {
     return new Promise(async (resolve, reject) => {
       let error = "";
       try {
-        let lambdaFileLoadedToSGAWS: boolean = false;
-        let updateId = lastUpdatedId + 1;
-        let lastXLines: string[] = [];
-        let rtvCumulative: any = {};
-        let queueTail: any[] = [];
-        let procFinished: boolean = false;
-        let stdoutAnalysisFinished: boolean = false;
-        let stdoutBytesProcessed: number = 0;
-        let stdoutTruncated: boolean = false;
-        let _teamId: string = step._teamId;
-        let runLambdaFinished: boolean = false;
-        let lambdaDuration: string = undefined;
-        let lambdaBilledDuration: string = undefined;
-        let lambdaMemSize: string = undefined;
-        let lambdaMaxMemUsed: string = undefined;
-        let lambdaInitDuration: string = undefined;
-        let runParams: any = {
+        let lambdaFileLoadedToSGAWS = false;
+        const updateId = lastUpdatedId + 1;
+        const lastXLines: string[] = [];
+        const rtvCumulative: any = {};
+        const queueTail: any[] = [];
+        const procFinished = false;
+        const stdoutAnalysisFinished = false;
+        const stdoutBytesProcessed = 0;
+        const stdoutTruncated = false;
+        const _teamId: string = step._teamId;
+        const runLambdaFinished = false;
+        const lambdaDuration: string = undefined;
+        const lambdaBilledDuration: string = undefined;
+        const lambdaMemSize: string = undefined;
+        const lambdaMaxMemUsed: string = undefined;
+        const lambdaInitDuration: string = undefined;
+        const runParams: any = {
           queueTail,
           procFinished,
           taskOutcomeId,
@@ -1340,14 +1549,15 @@ export default class Agent {
           lambdaInitDuration,
         };
 
-        const stdoutFileName = workingDirectory + path.sep + SGUtils.makeid(10) + ".out";
+        const stdoutFileName =
+          workingDirectory + path.sep + SGUtils.makeid(10) + ".out";
         const out = fs.openSync(stdoutFileName, "w");
 
-        let lambdaCode: any = {};
-        let zipFilePath: string = "";
-        let handler: string = "";
+        const lambdaCode: any = {};
+        let zipFilePath = "";
+        let handler = "";
         if (!step.lambdaZipfile) {
-          let msg: string = `${new Date().toISOString()} Creating AWS Lambda function\n`;
+          const msg = `${new Date().toISOString()} Creating AWS Lambda function\n`;
           runParams.lastXLines.push(msg);
           const updates: any = {
             _teamId: runParams._teamId,
@@ -1356,7 +1566,12 @@ export default class Agent {
             status: Enums.StepStatus.RUNNING,
             lastUpdateId: runParams.updateId,
           };
-          await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, "PUT", null, updates);
+          await appInst.RestAPICall(
+            `stepOutcome/${runParams.stepOutcomeId}`,
+            "PUT",
+            null,
+            updates
+          );
           runParams.updateId += 1;
 
           if (step.lambdaRuntime.toLowerCase().startsWith("node")) {
@@ -1396,13 +1611,17 @@ export default class Agent {
             lambdaCode.ZipFile = zipContents;
             handler = "lambda_function.lambda_handler";
           } else {
-            appInst.LogError(`Unsupported lambda runtime`, "", {step});
+            appInst.LogError(`Unsupported lambda runtime`, "", { step });
             throw new Error("Unsupported lambda runtime");
           }
-          const zipFileSizeMB: number = fs.statSync(zipFilePath).size / 1024.0 / 1024.0;
+          const zipFileSizeMB: number =
+            fs.statSync(zipFilePath).size / 1024.0 / 1024.0;
           if (zipFileSizeMB > 0) {
-            let s3Path = `lambda/${task.id}`;
-            let res: any = await SGUtils.RunCommand(`aws s3 cp ${zipFilePath} s3://${step.s3Bucket}/${s3Path}`, {});
+            const s3Path = `lambda/${task.id}`;
+            const res: any = await SGUtils.RunCommand(
+              `aws s3 cp ${zipFilePath} s3://${step.s3Bucket}/${s3Path}`,
+              {}
+            );
             if (res.stderr != "" || res.code != 0) {
               appInst.LogError(`Error loading lambda function to S3`, "", {
                 stderr: res.stderr,
@@ -1417,7 +1636,12 @@ export default class Agent {
             lambdaFileLoadedToSGAWS = true;
           }
         } else {
-          let artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, "GET", null, {_teamId});
+          const artifact: any = await this.RestAPICall(
+            `artifact/${step.lambdaZipfile}`,
+            "GET",
+            null,
+            { _teamId }
+          );
           lambdaCode.S3Bucket = step.s3Bucket;
 
           let s3Path = "";
@@ -1455,7 +1679,7 @@ export default class Agent {
           } catch (e) {}
         }
 
-        let msg: string = `${new Date().toISOString()} Running AWS Lambda function\n`;
+        const msg = `${new Date().toISOString()} Running AWS Lambda function\n`;
         runParams.lastXLines.push(msg);
         const updates: any = {
           _teamId: runParams._teamId,
@@ -1464,7 +1688,12 @@ export default class Agent {
           status: Enums.StepStatus.RUNNING,
           lastUpdateId: runParams.updateId,
         };
-        await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, "PUT", null, updates);
+        await appInst.RestAPICall(
+          `stepOutcome/${runParams.stepOutcomeId}`,
+          "PUT",
+          null,
+          updates
+        );
         runParams.updateId += 1;
 
         let payload = {};
@@ -1472,40 +1701,52 @@ export default class Agent {
         runningProcesses[runParams.taskOutcomeId] = "no requestId yet";
         let runLambdaError: any;
         let runLambdaResult: any;
-        SGUtils.RunAWSLambda(task.id, step.lambdaAWSRegion, payload, (err, data) => {
-          if (err) {
-            runLambdaError = err;
-            runParams.runLambdaFinished = true;
+        SGUtils.RunAWSLambda(
+          task.id,
+          step.lambdaAWSRegion,
+          payload,
+          (err, data) => {
+            if (err) {
+              runLambdaError = err;
+              runParams.runLambdaFinished = true;
+            }
+            if (data) {
+              runLambdaResult = data;
+            }
           }
-          if (data) {
-            runLambdaResult = data;
-          }
-        });
+        );
 
         appInst.RunningTailHandler(runParams);
 
-        await SGUtils.GetCloudWatchLogsEvents(task.id, runParams, appInst.logger, (msgs) => {
-          for (let i = 0; i < msgs.length; i++) {
-            if (msgs[i].message.startsWith("START")) {
-              const requestId = msgs[i].message.split(" ")[2];
-              runningProcesses[runParams.taskOutcomeId] = `lambda ${requestId}`;
-            } else {
-              let msg = msgs[i].message.split("\t");
-              if (msg.length > 2) {
-                if (msg[2] == "ERROR") {
-                  error = msg;
-                  if (msg.length > 4) {
-                    const jmsg = JSON.parse(msg[4]);
-                    if ("stack" in jmsg) error += jmsg.stack + "\n";
+        await SGUtils.GetCloudWatchLogsEvents(
+          task.id,
+          runParams,
+          appInst.logger,
+          (msgs) => {
+            for (let i = 0; i < msgs.length; i++) {
+              if (msgs[i].message.startsWith("START")) {
+                const requestId = msgs[i].message.split(" ")[2];
+                runningProcesses[
+                  runParams.taskOutcomeId
+                ] = `lambda ${requestId}`;
+              } else {
+                const msg = msgs[i].message.split("\t");
+                if (msg.length > 2) {
+                  if (msg[2] == "ERROR") {
+                    error = msg;
+                    if (msg.length > 4) {
+                      const jmsg = JSON.parse(msg[4]);
+                      if ("stack" in jmsg) error += jmsg.stack + "\n";
+                    }
                   }
                 }
               }
+              runParams.queueTail.push(msgs[i]);
             }
-            runParams.queueTail.push(msgs[i]);
-          }
 
-          fs.writeSync(out, msgs.map((m) => m.message).join("\n"));
-        });
+            fs.writeSync(out, msgs.map((m) => m.message).join("\n"));
+          }
+        );
 
         runParams.procFinished = true;
 
@@ -1515,12 +1756,16 @@ export default class Agent {
         fs.closeSync(out);
 
         if (runLambdaError) {
-          appInst.LogError(runLambdaError.message, runLambdaError.stack, runLambdaError);
+          appInst.LogError(
+            runLambdaError.message,
+            runLambdaError.stack,
+            runLambdaError
+          );
           error = "Unknown error occurred running lambda function";
         }
         if (runLambdaResult) {
           if (runLambdaResult.FunctionError && runLambdaResult.Payload) {
-            let payload = JSON.parse(runLambdaResult.Payload);
+            const payload = JSON.parse(runLambdaResult.Payload);
             error = `errorType: ${payload.errorType} - errorMessage: ${payload.errorMessage} - stackTrace: ${payload.stackTrace}\n${error}`;
           }
         }
@@ -1542,10 +1787,10 @@ export default class Agent {
           parseStdoutResult.runtimeVars = {};
         }
 
-        let runtimeVars: any = {};
+        const runtimeVars: any = {};
         Object.assign(runtimeVars, parseStdoutResult.runtimeVars);
 
-        let outParams: any = {
+        const outParams: any = {
           lambdaDuration: runParams.lambdaDuration,
           lambdaBilledDuration: runParams.lambdaBilledDuration,
           lambdaMemSize: runParams.lambdaMemSize,
@@ -1558,7 +1803,7 @@ export default class Agent {
           outParams[SGStrings.status] = Enums.StepStatus.SUCCEEDED;
         } else {
           code = -1;
-          runtimeVars["route"] = {value: "fail"};
+          runtimeVars["route"] = { value: "fail" };
           outParams[SGStrings.status] = Enums.StepStatus.FAILED;
           outParams["failureCode"] = Enums.TaskFailureCode.TASK_EXEC_ERROR;
         }
@@ -1575,12 +1820,17 @@ export default class Agent {
         await SGUtils.DeleteAWSLambda(task.id, step.lambdaAWSRegion);
         await SGUtils.DeleteCloudWatchLogsEvents(task.id);
         if (lambdaFileLoadedToSGAWS) {
-          await SGUtils.RunCommand(`aws s3 rm s3://${lambdaCode.S3Bucket}/${lambdaCode.S3Key}`, {});
+          await SGUtils.RunCommand(
+            `aws s3 rm s3://${lambdaCode.S3Bucket}/${lambdaCode.S3Key}`,
+            {}
+          );
         }
         resolve(outParams);
       } catch (e) {
-        let errMsg: string = e.message || e.toString();
-        this.LogError("Error in RunStepAsync_Lambda", e.stack, {error: errMsg});
+        const errMsg: string = e.message || e.toString();
+        this.LogError("Error in RunStepAsync_Lambda", e.stack, {
+          error: errMsg,
+        });
         await SGUtils.sleep(1000);
         error += errMsg + "\n";
         resolve({
@@ -1605,7 +1855,7 @@ export default class Agent {
     const appInst = this;
     return new Promise(async (resolve, reject) => {
       try {
-        let script = step.script;
+        const script = step.script;
 
         let scriptFileName = workingDirectory + path.sep + SGUtils.makeid(10);
 
@@ -1645,30 +1895,42 @@ export default class Agent {
         if (step.command) {
           commandString = step.command.trim() + " ";
         } else {
-          if (script.scriptType != Enums.ScriptType.CMD && script.scriptType != Enums.ScriptType.SH) {
-            commandString += `${Enums.ScriptTypeDetails[Enums.ScriptType[script.scriptType.toString()]].cmd} `;
+          if (
+            script.scriptType != Enums.ScriptType.CMD &&
+            script.scriptType != Enums.ScriptType.SH
+          ) {
+            commandString += `${
+              Enums.ScriptTypeDetails[
+                Enums.ScriptType[script.scriptType.toString()]
+              ].cmd
+            } `;
           }
         }
         commandString += scriptFileName;
         if (step.arguments) commandString += ` ${step.arguments}`;
 
-        const stdoutFileName = workingDirectory + path.sep + SGUtils.makeid(10) + ".out";
-        const stderrFileName = workingDirectory + path.sep + SGUtils.makeid(10) + ".err";
+        const stdoutFileName =
+          workingDirectory + path.sep + SGUtils.makeid(10) + ".out";
+        const stderrFileName =
+          workingDirectory + path.sep + SGUtils.makeid(10) + ".err";
 
         const out = fs.openSync(stdoutFileName, "w");
         const err = fs.openSync(stderrFileName, "w");
 
         let updateId = lastUpdatedId + 1;
         let lastXLines: string[] = [];
-        let rtvCumulative: any = {};
-        let queueTail: any[] = [];
-        let procFinished: boolean = false;
-        let stdoutAnalysisFinished: boolean = false;
-        let stdoutBytesProcessed: number = 0;
-        let stdoutTruncated: boolean = false;
+        const rtvCumulative: any = {};
+        const queueTail: any[] = [];
+        let procFinished = false;
+        let stdoutAnalysisFinished = false;
+        let stdoutBytesProcessed = 0;
+        let stdoutTruncated = false;
 
         /// tail the stdout
-        let tail = new Tail(stdoutFileName, {useWatchFile: true, flushAtEOF: true});
+        const tail = new Tail(stdoutFileName, {
+          useWatchFile: true,
+          flushAtEOF: true,
+        });
         tail.on("line", async (data) => {
           if (process.platform.indexOf("win") != 0)
             try {
@@ -1678,7 +1940,9 @@ export default class Agent {
         });
 
         tail.on("error", function (error) {
-          this.LogError("Error tailing stdout file", error.stack, {error: error.toString()});
+          this.LogError("Error tailing stdout file", error.stack, {
+            error: error.toString(),
+          });
         });
 
         let env: any = Object.assign({}, process.env);
@@ -1689,7 +1953,7 @@ export default class Agent {
         env.taskId = task.id;
         env.stepId = step.id;
 
-        let cmd = spawn(commandString, [], {
+        const cmd = spawn(commandString, [], {
           stdio: ["ignore", out, err],
           shell: true,
           detached: false,
@@ -1707,7 +1971,9 @@ export default class Agent {
             } catch (e) {}
 
             // console.log('error: ' + err);
-            this.LogError(`Error running script`, "", {error: err.toString()});
+            this.LogError(`Error running script`, "", {
+              error: err.toString(),
+            });
             resolve({
               status: Enums.StepStatus.FAILED,
               code: -1,
@@ -1716,7 +1982,9 @@ export default class Agent {
               failureCode: TaskFailureCode.AGENT_EXEC_ERROR,
             });
           } catch (e) {
-            this.LogError("Error handling error event", e.stack, {error: e.message});
+            this.LogError("Error handling error event", e.stack, {
+              error: e.message,
+            });
           }
         });
 
@@ -1745,7 +2013,9 @@ export default class Agent {
                 stdoutBytesProcessed,
                 stdoutTruncated
               );
-              lastXLines = lastXLines.concat(parseStdoutResult.lastXLines).slice(-appInst.numLinesInTail);
+              lastXLines = lastXLines
+                .concat(parseStdoutResult.lastXLines)
+                .slice(-appInst.numLinesInTail);
             } else {
               parseStdoutResult.output = "";
               parseStdoutResult.runtimeVars = {};
@@ -1753,33 +2023,47 @@ export default class Agent {
 
             let parseStderrResult: any = {};
             if (fs.existsSync(stderrFileName)) {
-              parseStderrResult = await this.ParseScriptStderr(stderrFileName, task);
+              parseStderrResult = await this.ParseScriptStderr(
+                stderrFileName,
+                task
+              );
             } else {
               parseStderrResult.output = "";
             }
 
-            let runtimeVars: any = {};
+            const runtimeVars: any = {};
             let match: string[] = [];
-            while ((match = regexStdoutRedirectFiles.exec(step.arguments)) !== null) {
+            while (
+              (match = regexStdoutRedirectFiles.exec(step.arguments)) !== null
+            ) {
               const fileName = match[1];
               let parseResult: any = {};
-              parseResult = await this.ParseScriptStdout(workingDirectory + path.sep + fileName, task, false);
+              parseResult = await this.ParseScriptStdout(
+                workingDirectory + path.sep + fileName,
+                task,
+                false
+              );
               Object.assign(runtimeVars, parseResult.runtimeVars);
             }
 
             Object.assign(runtimeVars, parseStdoutResult.runtimeVars);
 
-            let outParams: any = {};
+            const outParams: any = {};
             if (code == 0) {
               outParams[SGStrings.status] = Enums.StepStatus.SUCCEEDED;
             } else {
-              if (signal == "SIGTERM" || signal == "SIGINT" || this.mainProcessInterrupted) {
-                runtimeVars["route"] = {value: "interrupt"};
+              if (
+                signal == "SIGTERM" ||
+                signal == "SIGINT" ||
+                this.mainProcessInterrupted
+              ) {
+                runtimeVars["route"] = { value: "interrupt" };
                 outParams[SGStrings.status] = Enums.StepStatus.INTERRUPTED;
               } else {
-                runtimeVars["route"] = {value: "fail"};
+                runtimeVars["route"] = { value: "fail" };
                 outParams[SGStrings.status] = Enums.StepStatus.FAILED;
-                outParams["failureCode"] = Enums.TaskFailureCode.TASK_EXEC_ERROR;
+                outParams["failureCode"] =
+                  Enums.TaskFailureCode.TASK_EXEC_ERROR;
               }
             }
 
@@ -1794,7 +2078,9 @@ export default class Agent {
 
             resolve(outParams);
           } catch (e) {
-            this.LogError("Error handling script exit", e.stack, {error: e.toString()});
+            this.LogError("Error handling script exit", e.stack, {
+              error: e.toString(),
+            });
             resolve({
               status: Enums.StepStatus.FAILED,
               code: -1,
@@ -1821,14 +2107,24 @@ export default class Agent {
             continue;
           }
 
-          let data: string[] = queueTail.splice(0);
+          const data: string[] = queueTail.splice(0);
           try {
-            let dataAsString = data.join("\n");
-            if (!(task.target & (TaskDefTarget.ALL_AGENTS | TaskDefTarget.ALL_AGENTS_WITH_TAGS))) {
-              const [rtv, newLine] = appInst.ExtractRuntimeVarsFromString(dataAsString);
-              let rtvUpdates = {};
-              for (let indexRTV = 0; indexRTV < Object.keys(rtv).length; indexRTV++) {
-                let key = Object.keys(rtv)[indexRTV];
+            const dataAsString = data.join("\n");
+            if (
+              !(
+                task.target &
+                (TaskDefTarget.ALL_AGENTS | TaskDefTarget.ALL_AGENTS_WITH_TAGS)
+              )
+            ) {
+              const [rtv, newLine] =
+                appInst.ExtractRuntimeVarsFromString(dataAsString);
+              const rtvUpdates = {};
+              for (
+                let indexRTV = 0;
+                indexRTV < Object.keys(rtv).length;
+                indexRTV++
+              ) {
+                const key = Object.keys(rtv)[indexRTV];
                 if (!rtvCumulative[key] || rtvCumulative[key] != rtv[key]) {
                   rtvUpdates[key] = rtv[key];
                   rtvCumulative[key] = rtv[key];
@@ -1837,34 +2133,57 @@ export default class Agent {
 
               if (Object.keys(rtvUpdates).length > 0) {
                 // console.log(`****************** taskOutcomeId -> ${taskOutcomeId}`);
-                await appInst.RestAPICall(`taskOutcome/${taskOutcomeId}`, "PUT", null, {runtimeVars: rtvUpdates});
+                await appInst.RestAPICall(
+                  `taskOutcome/${taskOutcomeId}`,
+                  "PUT",
+                  null,
+                  { runtimeVars: rtvUpdates }
+                );
               }
             }
 
             lastXLines = lastXLines.concat(data).slice(-appInst.numLinesInTail);
             for (let i = 0; i < lastXLines.length; i++) {
-              if (Buffer.byteLength(lastXLines[i], "utf8") > appInst.maxSizeLineInTail)
-                lastXLines[i] = truncate(lastXLines[i], appInst.maxSizeLineInTail) + " (truncated)";
-              lastXLines[i] = appInst.ReplaceSensitiveRuntimeVarValuesInString(lastXLines[i], task.runtimeVars);
+              if (
+                Buffer.byteLength(lastXLines[i], "utf8") >
+                appInst.maxSizeLineInTail
+              )
+                lastXLines[i] =
+                  truncate(lastXLines[i], appInst.maxSizeLineInTail) +
+                  " (truncated)";
+              lastXLines[i] = appInst.ReplaceSensitiveRuntimeVarValuesInString(
+                lastXLines[i],
+                task.runtimeVars
+              );
             }
 
             while (true) {
               if (data.length < 1) break;
 
-              let stdoutToUpload: string = "";
-              let countLinesToUpload: number = 0;
+              let stdoutToUpload = "";
+              let countLinesToUpload = 0;
               if (!stdoutTruncated) {
-                const maxStdoutUploadSize: number = 51200;
-                let stdoutBytesProcessedLocal: number = 0;
+                const maxStdoutUploadSize = 51200;
+                let stdoutBytesProcessedLocal = 0;
                 for (let i = 0; i < data.length; i++) {
-                  data[i] = appInst.ReplaceSensitiveRuntimeVarValuesInString(data[i], task.runtimeVars);
+                  data[i] = appInst.ReplaceSensitiveRuntimeVarValuesInString(
+                    data[i],
+                    task.runtimeVars
+                  );
                   const strLenBytes = Buffer.byteLength(data[i], "utf8");
-                  if (stdoutBytesProcessed + strLenBytes > appInst.maxStdoutSize) {
-                    stdoutToUpload += "\n(max stdout size exceeded - results truncated)\n";
+                  if (
+                    stdoutBytesProcessed + strLenBytes >
+                    appInst.maxStdoutSize
+                  ) {
+                    stdoutToUpload +=
+                      "\n(max stdout size exceeded - results truncated)\n";
                     stdoutTruncated = true;
                     break;
                   }
-                  if (stdoutBytesProcessedLocal + strLenBytes > maxStdoutUploadSize) {
+                  if (
+                    stdoutBytesProcessedLocal + strLenBytes >
+                    maxStdoutUploadSize
+                  ) {
                     break;
                   }
                   stdoutToUpload += `${data[i]}\n`;
@@ -1885,18 +2204,27 @@ export default class Agent {
                 lastUpdateId: updateId,
               };
               updateId += 1;
-              await appInst.RestAPICall(`stepOutcome/${stepOutcomeId}`, "PUT", null, updates);
+              await appInst.RestAPICall(
+                `stepOutcome/${stepOutcomeId}`,
+                "PUT",
+                null,
+                updates
+              );
 
               if (stdoutTruncated) break;
             }
           } catch (err) {
-            this.LogError(`Error handling stdout tail`, err.stack, {error: err.toString()});
+            this.LogError(`Error handling stdout tail`, err.stack, {
+              error: err.toString(),
+            });
             await SGUtils.sleep(1000);
           }
         }
         stdoutAnalysisFinished = true;
       } catch (e) {
-        this.LogError("Error in RunStepAsync", e.stack, {error: e.toString()});
+        this.LogError("Error in RunStepAsync", e.stack, {
+          error: e.toString(),
+        });
         await SGUtils.sleep(1000);
         resolve({
           status: Enums.StepStatus.FAILED,
@@ -1912,20 +2240,30 @@ export default class Agent {
   RunTask = async (task: TaskSchema) => {
     // this.LogDebug('Running task', { 'id': task.id });
     // console.log("Agent -> RunTask -> task -> ", util.inspect(task, false, null));
-    let dateStarted = new Date().toISOString();
+    const dateStarted = new Date().toISOString();
 
-    let workingDirectory = process.cwd() + path.sep + SGUtils.makeid(10);
+    const workingDirectory = process.cwd() + path.sep + SGUtils.makeid(10);
 
     if (!fs.existsSync(workingDirectory)) fs.mkdirSync(workingDirectory);
 
-    let artifactsDownloadedSize: number = 0;
+    let artifactsDownloadedSize = 0;
     if (task.artifacts) {
       for (let i = 0; i < task.artifacts.length; i++) {
-        let artifactSize: number = 0;
+        let artifactSize = 0;
         try {
-          artifactSize = <number>await this.GetArtifact(task.artifacts[i], workingDirectory, this._teamId);
+          artifactSize = <number>(
+            await this.GetArtifact(
+              task.artifacts[i],
+              workingDirectory,
+              this._teamId
+            )
+          );
         } catch (err) {
-          this.LogError("Error in RunTask: " + err.message, err.stack, task.artifacts[i]);
+          this.LogError(
+            "Error in RunTask: " + err.message,
+            err.stack,
+            task.artifacts[i]
+          );
         }
         artifactsDownloadedSize += artifactSize;
       }
@@ -1935,7 +2273,9 @@ export default class Agent {
 
     let stepsAsc: StepSchema[] = (<any>task).steps;
     // console.log('Agent -> RunTask -> stepsAsc -> beforesort -> ', util.inspect(stepsAsc, false, null));
-    stepsAsc = stepsAsc.sort((a: StepSchema, b: StepSchema) => (a.order > b.order ? 1 : a.order < b.order ? -1 : 0));
+    stepsAsc = stepsAsc.sort((a: StepSchema, b: StepSchema) =>
+      a.order > b.order ? 1 : a.order < b.order ? -1 : 0
+    );
     // console.log('Agent -> RunTask -> stepsAsc -> ', util.inspect(stepsAsc, false, null));
 
     let taskOutcome: any = {
@@ -1946,16 +2286,21 @@ export default class Agent {
       artifactsDownloadedSize: artifactsDownloadedSize,
     };
     taskOutcome = <TaskOutcomeSchema>(
-      await this.RestAPICall(`taskOutcome/${task._taskOutcomeId}`, "PUT", null, taskOutcome)
+      await this.RestAPICall(
+        `taskOutcome/${task._taskOutcomeId}`,
+        "PUT",
+        null,
+        taskOutcome
+      )
     );
     // console.log('taskOutcome -> POST -> ', util.inspect(taskOutcome, false, null));
     if (taskOutcome.status == Enums.TaskStatus.RUNNING) {
       let lastStepOutcome = undefined;
-      for (let step of stepsAsc) {
+      for (const step of stepsAsc) {
         if (step.variables) {
-          let newEnv: any = _.clone(step.variables);
+          const newEnv: any = _.clone(step.variables);
           for (let e = 0; e < Object.keys(newEnv).length; e++) {
-            let eKey = Object.keys(newEnv)[e];
+            const eKey = Object.keys(newEnv)[e];
             if (eKey in task.runtimeVars) {
               newEnv[eKey] = task.runtimeVars[eKey]["value"];
             }
@@ -1972,23 +2317,36 @@ export default class Agent {
         step.script.code = SGUtils.btoa_(newScript);
 
         newScript = SGUtils.atob(step.script.code);
-        let arrInjectVarsScript: string[] = newScript.match(/@sgg?(\([^)]*\))/gi);
+        const arrInjectVarsScript: string[] =
+          newScript.match(/@sgg?(\([^)]*\))/gi);
         if (arrInjectVarsScript) {
           // replace runtime variables in script
           for (let i = 0; i < arrInjectVarsScript.length; i++) {
-            let found: boolean = false;
+            let found = false;
             try {
-              let injectVarKey = arrInjectVarsScript[i].substr(5, arrInjectVarsScript[i].length - 6);
-              if (injectVarKey.substr(0, 1) === '"' && injectVarKey.substr(injectVarKey.length - 1, 1) === '"')
+              let injectVarKey = arrInjectVarsScript[i].substr(
+                5,
+                arrInjectVarsScript[i].length - 6
+              );
+              if (
+                injectVarKey.substr(0, 1) === '"' &&
+                injectVarKey.substr(injectVarKey.length - 1, 1) === '"'
+              )
                 injectVarKey = injectVarKey.slice(1, -1);
               if (injectVarKey in task.runtimeVars) {
-                let injectVarVal = task.runtimeVars[injectVarKey].value;
-                newScript = newScript.replace(`${arrInjectVarsScript[i]}`, `${injectVarVal}`);
+                const injectVarVal = task.runtimeVars[injectVarKey].value;
+                newScript = newScript.replace(
+                  `${arrInjectVarsScript[i]}`,
+                  `${injectVarVal}`
+                );
                 found = true;
               }
 
               if (!found) {
-                newScript = newScript.replace(`${arrInjectVarsScript[i]}`, "null");
+                newScript = newScript.replace(
+                  `${arrInjectVarsScript[i]}`,
+                  "null"
+                );
               }
             } catch (e) {
               this.LogError(`Error replacing script @sgg capture `, e.stack, {
@@ -2002,19 +2360,28 @@ export default class Agent {
         }
 
         let newArgs: string = step.arguments;
-        let arrInjectVarsArgs: string[] = newArgs.match(/@sgg?(\([^)]*\))/gi);
+        const arrInjectVarsArgs: string[] = newArgs.match(/@sgg?(\([^)]*\))/gi);
         if (arrInjectVarsArgs) {
           // replace runtime variables in arguments
           for (let i = 0; i < arrInjectVarsArgs.length; i++) {
-            let found: boolean = false;
+            let found = false;
             try {
-              let injectVarKey = arrInjectVarsArgs[i].substr(5, arrInjectVarsArgs[i].length - 6);
-              if (injectVarKey.substr(0, 1) === '"' && injectVarKey.substr(injectVarKey.length - 1, 1) === '"')
+              let injectVarKey = arrInjectVarsArgs[i].substr(
+                5,
+                arrInjectVarsArgs[i].length - 6
+              );
+              if (
+                injectVarKey.substr(0, 1) === '"' &&
+                injectVarKey.substr(injectVarKey.length - 1, 1) === '"'
+              )
                 injectVarKey = injectVarKey.slice(1, -1);
               if (injectVarKey in task.runtimeVars) {
-                let injectVarVal = task.runtimeVars[injectVarKey].value;
+                const injectVarVal = task.runtimeVars[injectVarKey].value;
                 if (injectVarVal) {
-                  newArgs = newArgs.replace(`${arrInjectVarsArgs[i]}`, `${injectVarVal}`);
+                  newArgs = newArgs.replace(
+                    `${arrInjectVarsArgs[i]}`,
+                    `${injectVarVal}`
+                  );
                   found = true;
                 }
               }
@@ -2023,18 +2390,25 @@ export default class Agent {
                 newArgs = newArgs.replace(`${arrInjectVarsArgs[i]}`, "null");
               }
             } catch (e) {
-              this.LogError(`Error replacing arguments @sgg capture `, e.stack, {
-                task,
-                capture: arrInjectVarsScript[i],
-                error: e.toString(),
-              });
+              this.LogError(
+                `Error replacing arguments @sgg capture `,
+                e.stack,
+                {
+                  task,
+                  capture: arrInjectVarsScript[i],
+                  error: e.toString(),
+                }
+              );
             }
           }
           step.arguments = newArgs;
         }
 
         let runCode: string = SGUtils.atob(step.script.code);
-        runCode = this.ReplaceSensitiveRuntimeVarValuesInString(runCode, task.runtimeVars);
+        runCode = this.ReplaceSensitiveRuntimeVarValuesInString(
+          runCode,
+          task.runtimeVars
+        );
         runCode = SGUtils.btoa_(runCode);
 
         let stepOutcome: any = {
@@ -2059,7 +2433,9 @@ export default class Agent {
           stepOutcome.machineId = "lambda-executor";
         }
 
-        stepOutcome = <StepOutcomeSchema>await this.RestAPICall(`stepOutcome`, "POST", null, stepOutcome);
+        stepOutcome = <StepOutcomeSchema>(
+          await this.RestAPICall(`stepOutcome`, "POST", null, stepOutcome)
+        );
 
         // console.log('Agent -> RunTask -> RunStepAsync -> step -> ', util.inspect(step, false, null));
         let res: any;
@@ -2098,33 +2474,39 @@ export default class Agent {
         Object.assign(task.runtimeVars, res.runtimeVars);
         Object.assign(taskOutcome.runtimeVars, res.runtimeVars);
 
-        if (res.status === Enums.StepStatus.INTERRUPTED || res.status === Enums.StepStatus.FAILED) {
+        if (
+          res.status === Enums.StepStatus.INTERRUPTED ||
+          res.status === Enums.StepStatus.FAILED
+        ) {
           allStepsCompleted = false;
           break;
         }
       }
 
-      let dateCompleted = new Date().toISOString();
+      const dateCompleted = new Date().toISOString();
 
       if (allStepsCompleted) {
         taskOutcome.status = Enums.TaskStatus.SUCCEEDED;
       } else {
         if (lastStepOutcome) {
           taskOutcome.status = lastStepOutcome.status;
-          if (lastStepOutcome.failureCode) taskOutcome.failureCode = lastStepOutcome.failureCode;
+          if (lastStepOutcome.failureCode)
+            taskOutcome.failureCode = lastStepOutcome.failureCode;
         } else {
           taskOutcome.status = Enums.TaskStatus.FAILED;
           taskOutcome.failureCode = TaskFailureCode.AGENT_EXEC_ERROR;
         }
       }
 
-      let taskOutcomeUpdates: any = {};
+      const taskOutcomeUpdates: any = {};
       taskOutcomeUpdates.status = taskOutcome.status;
-      if (taskOutcome.failureCode) taskOutcomeUpdates.failureCode = taskOutcome.failureCode;
+      if (taskOutcome.failureCode)
+        taskOutcomeUpdates.failureCode = taskOutcome.failureCode;
       taskOutcomeUpdates.dateCompleted = dateCompleted;
       taskOutcomeUpdates.runtimeVars = taskOutcome.runtimeVars;
 
-      if (task.target == Enums.TaskDefTarget.AWS_LAMBDA) taskOutcomeUpdates._teamId = task._teamId;
+      if (task.target == Enums.TaskDefTarget.AWS_LAMBDA)
+        taskOutcomeUpdates._teamId = task._teamId;
       // console.log(`???????????????????\n\ntaskOutcomeId -> ${taskOutcome.id}\n\ntaskOutcome -> ${JSON.stringify(taskOutcome)}\n\ntask -> ${JSON.stringify(task)}\n\ntaskOutcomeUpdates -> ${JSON.stringify(taskOutcomeUpdates)}`);
       this.queueCompleteMessages.push({
         url: `taskOutcome/${taskOutcome.id}`,
@@ -2161,9 +2543,11 @@ export default class Agent {
         autoRestart: params.autoRestart,
       };
 
-      taskOutcome = <TaskOutcomeSchema>await this.RestAPICall(`taskOutcome`, "POST", null, taskOutcome);
+      taskOutcome = <TaskOutcomeSchema>(
+        await this.RestAPICall(`taskOutcome`, "POST", null, taskOutcome)
+      );
 
-      let taskOutcomeUpdates: any = {runtimeVars: {route: "fail"}};
+      const taskOutcomeUpdates: any = { runtimeVars: { route: "fail" } };
       taskOutcomeUpdates.status = Enums.TaskStatus.FAILED;
       taskOutcomeUpdates.failureCode = TaskFailureCode.AGENT_EXEC_ERROR;
       taskOutcomeUpdates.dateCompleted = new Date().toISOString();
@@ -2176,12 +2560,14 @@ export default class Agent {
 
       delete runningProcesses[taskOutcome.id];
     } catch (e) {
-      this.LogError("Error in CompleteTaskGeneralErrorHandler", e.stack, {error: e.toString()});
+      this.LogError("Error in CompleteTaskGeneralErrorHandler", e.stack, {
+        error: e.toString(),
+      });
     }
   };
 
   CompleteTask = async (params: any, msgKey: string, cb: any) => {
-    this.LogDebug("Task received", {msgKey, params});
+    this.LogDebug("Task received", { msgKey, params });
     this.numActiveTasks += 1;
     try {
       if (this.numActiveTasks > this.maxActiveTasks) {
@@ -2191,7 +2577,7 @@ export default class Agent {
         await this.RunTask(params);
       }
     } catch (e) {
-      this.LogError("Error in CompleteTask", e.stack, {error: e.toString()});
+      this.LogError("Error in CompleteTask", e.stack, { error: e.toString() });
       // await this.CompleteTaskGeneralErrorHandler(params);
       return cb(true, msgKey);
     } finally {
@@ -2204,7 +2590,10 @@ export default class Agent {
       await cb(true, msgKey);
       // await this.LogDebug('Update received', { msgKey, params });
       if (this.updating) {
-        await this.LogWarning("Version update running - skipping this update", {});
+        await this.LogWarning(
+          "Version update running - skipping this update",
+          {}
+        );
         return;
       }
 
@@ -2214,15 +2603,25 @@ export default class Agent {
       }
 
       if (params.targetVersion && params.reportedVersion) {
-        if (params.targetVersion == params.reportedVersion || this.runStandAlone) {
+        if (
+          params.targetVersion == params.reportedVersion ||
+          this.runStandAlone
+        ) {
           return;
         }
 
         this.updating = true;
-        await this.LogDebug("Update Agent version message received", {msgKey, params});
+        await this.LogDebug("Update Agent version message received", {
+          msgKey,
+          params,
+        });
         await SGUtils.sleep(2000);
         await this.StopConsuming();
-        if (this.numActiveTasks > 0) await this.LogDebug("Updating Agent - waiting for current tasks to complete", {});
+        if (this.numActiveTasks > 0)
+          await this.LogDebug(
+            "Updating Agent - waiting for current tasks to complete",
+            {}
+          );
         while (this.numActiveTasks > 0) {
           await SGUtils.sleep(5000);
         }
@@ -2231,51 +2630,76 @@ export default class Agent {
       }
 
       if (params.tags) {
-        await this.LogDebug("Update tags message received", {msgKey, params});
+        await this.LogDebug("Update tags message received", { msgKey, params });
         this.tags = params.tags;
-        this.updateUserConfigValues({tags: this.tags});
+        this.updateUserConfigValues({ tags: this.tags });
       }
 
       if (params.propertyOverrides) {
-        await this.LogDebug("Update property overrides message received", {msgKey, params});
+        await this.LogDebug("Update property overrides message received", {
+          msgKey,
+          params,
+        });
 
         // await cb(true, msgKey);
         await this.UpdatePropertyOverrides(params.propertyOverrides, "server");
-        this.updateUserConfigValues({propertyOverrides: params.propertyOverrides});
+        this.updateUserConfigValues({
+          propertyOverrides: params.propertyOverrides,
+        });
         await this.SendHeartbeat(false, true);
         await this.SendMessageToAgentStub(params);
       }
 
       if (params.interruptTask) {
-        await this.LogDebug("Interrupt task message received", {msgKey, params});
+        await this.LogDebug("Interrupt task message received", {
+          msgKey,
+          params,
+        });
         const procToInterrupt = runningProcesses[params.interruptTask.id];
-        if (procToInterrupt && typeof procToInterrupt == "object" && procToInterrupt.pid) {
+        if (
+          procToInterrupt &&
+          typeof procToInterrupt == "object" &&
+          procToInterrupt.pid
+        ) {
           // console.log('Interrupting task');
           // procToInterrupt.stdin.pause();
           // console.log('stdin paused');
           procToInterrupt.kill();
           // console.log('Task interrupted');
         } else {
-          const runtimeVars: any = {route: {value: "interrupt"}};
-          let taskOutcomeUpdate: any = {
+          const runtimeVars: any = { route: { value: "interrupt" } };
+          const taskOutcomeUpdate: any = {
             status: Enums.TaskStatus.INTERRUPTED,
             runtimeVars: runtimeVars,
           };
-          await this.RestAPICall(`taskOutcome/${params.interruptTask.id}`, "PUT", null, taskOutcomeUpdate);
+          await this.RestAPICall(
+            `taskOutcome/${params.interruptTask.id}`,
+            "PUT",
+            null,
+            taskOutcomeUpdate
+          );
         }
       }
 
       if (params.stopAgent) {
         this.stopping = true;
-        await this.LogDebug("Stop Agent message received", {msgKey, params});
+        await this.LogDebug("Stop Agent message received", { msgKey, params });
         await SGUtils.sleep(2000);
         await this.StopConsuming();
-        if (this.numActiveTasks > 0) await this.LogDebug("Stopping Agent - waiting for current tasks to complete", {});
+        if (this.numActiveTasks > 0)
+          await this.LogDebug(
+            "Stopping Agent - waiting for current tasks to complete",
+            {}
+          );
         while (this.numActiveTasks > 0) {
           await SGUtils.sleep(5000);
         }
         for (let i = 0; i < 6; i++) {
-          if (!this.queueCompleteMessages || this.queueCompleteMessages.length <= 0) break;
+          if (
+            !this.queueCompleteMessages ||
+            this.queueCompleteMessages.length <= 0
+          )
+            break;
           await SGUtils.sleep(5000);
         }
         this.offline = true;
@@ -2284,7 +2708,7 @@ export default class Agent {
 
       // await cb(true, msgKey);
     } catch (e) {
-      this.LogError(`Error in Update`, e.stack, {error: e.toString()});
+      this.LogError(`Error in Update`, e.stack, { error: e.toString() });
     } finally {
       // this.lockUpdate.release();
     }
@@ -2294,20 +2718,24 @@ export default class Agent {
     if (!propertyOverrides) return;
 
     for (let i = 0; i < Object.keys(propertyOverrides).length; i++) {
-      let key = Object.keys(propertyOverrides)[i];
-      if (source == "debug" || this.userConfigurableProperties.indexOf(key) >= 0) {
+      const key = Object.keys(propertyOverrides)[i];
+      if (
+        source == "debug" ||
+        this.userConfigurableProperties.indexOf(key) >= 0
+      ) {
         if (key == "logLevel") {
           if (propertyOverrides[key] != null) {
             this.logger.logLevel = propertyOverrides[key];
-            let props = {};
+            const props = {};
             props[key] = propertyOverrides[key];
-            await this.SendMessageToAgentStub({propertyOverrides: props});
+            await this.SendMessageToAgentStub({ propertyOverrides: props });
           }
         } else {
           if (propertyOverrides[key] == null) {
             this[key] = undefined;
           } else {
-            if (typeof this[key] === "number") this[key] = +propertyOverrides[key];
+            if (typeof this[key] === "number")
+              this[key] = +propertyOverrides[key];
             else this[key] = propertyOverrides[key];
           }
         }
@@ -2319,7 +2747,11 @@ export default class Agent {
     if (this.stopped) return;
 
     // this.LogDebug('Starting CheckStompConnection', {});
-    if (!(await this.stompConsumer.IsConnected(SGStrings.GetAgentQueue(this._teamId, this.instanceId.toHexString())))) {
+    if (
+      !(await this.stompConsumer.IsConnected(
+        SGStrings.GetAgentQueue(this._teamId, this.instanceId.toHexString())
+      ))
+    ) {
       // this.LogError('IsConnected returned false', '', {});
       await this.OnRabbitMQDisconnect();
     } else {
@@ -2336,16 +2768,24 @@ export default class Agent {
       lockConnectStomp,
       async () => {
         if (
-          !(await this.stompConsumer.IsConnected(SGStrings.GetAgentQueue(this._teamId, this.instanceId.toHexString())))
+          !(await this.stompConsumer.IsConnected(
+            SGStrings.GetAgentQueue(this._teamId, this.instanceId.toHexString())
+          ))
         ) {
-          this.LogError(`Not connected to RabbitMQ - attempting to connect`, "", {});
+          this.LogError(
+            `Not connected to RabbitMQ - attempting to connect`,
+            "",
+            {}
+          );
           await this.stompConsumer.Stop();
           await this.ConnectStomp();
         }
       },
       (err, ret) => {
         if (err) {
-          this.LogError("Error in OnRabbitMQDisconnect", err.stack, {error: err.toString()});
+          this.LogError("Error in OnRabbitMQDisconnect", err.stack, {
+            error: err.toString(),
+          });
           process.exitCode = 1;
         }
       },
@@ -2382,7 +2822,11 @@ export default class Agent {
       try {
         await this.stompConsumer.Start();
       } catch (e) {
-        this.LogError("Error starting stomp - trying again in 30 seconds", e.stack, {error: e.toString()});
+        this.LogError(
+          "Error starting stomp - trying again in 30 seconds",
+          e.stack,
+          { error: e.toString() }
+        );
         setTimeout(() => {
           this.ConnectStomp();
         }, 30000);
@@ -2393,18 +2837,24 @@ export default class Agent {
         await this.CheckStompConnection();
       }, 30000);
     } catch (e) {
-      this.LogError("Error in ConnectStomp", e.stack, {error: e.toString()});
+      this.LogError("Error in ConnectStomp", e.stack, { error: e.toString() });
       // setTimeout(() => { this.ConnectStomp(); }, 30000);
     }
   }
 
   async ConnectAgentWorkQueuesStomp() {
-    let exchange = SGStrings.GetTeamExchangeName(this._teamId);
-    const agentQueue = SGStrings.GetAgentQueue(this._teamId, this.instanceId.toHexString());
+    const exchange = SGStrings.GetTeamExchangeName(this._teamId);
+    const agentQueue = SGStrings.GetAgentQueue(
+      this._teamId,
+      this.instanceId.toHexString()
+    );
 
     // Queue to receive version update messages
     await this.stompConsumer.ConsumeQueue(
-      SGStrings.GetAgentUpdaterQueue(this._teamId, this.instanceId.toHexString()),
+      SGStrings.GetAgentUpdaterQueue(
+        this._teamId,
+        this.instanceId.toHexString()
+      ),
       false,
       true,
       false,
@@ -2428,44 +2878,57 @@ export default class Agent {
   }
 
   async RunAgentStub() {
-    let commandString: any = process.cwd() + "/sg-agent-launcher";
+    const commandString: any = process.cwd() + "/sg-agent-launcher";
     try {
-      spawn(commandString, [], {stdio: "pipe", shell: true});
+      spawn(commandString, [], { stdio: "pipe", shell: true });
       process.exit();
     } catch (e) {
-      console.error(`Error starting agent launcher '${commandString}': ${e.message}`, e.stack);
+      console.error(
+        `Error starting agent launcher '${commandString}': ${e.message}`,
+        e.stack
+      );
     }
   }
 
   async GetCronTab() {
-    const commandString: string = "crontab -l";
+    const commandString = "crontab -l";
     const args = [];
     return new Promise<null | any>((resolve, reject) => {
       try {
-        let stdout: string = "";
+        let stdout = "";
         // this.LogDebug('GetCronTab: ' + commandString + ' ' + args, {});
-        let cmd: any = spawn(commandString, args, {stdio: "pipe", shell: true});
+        const cmd: any = spawn(commandString, args, {
+          stdio: "pipe",
+          shell: true,
+        });
 
         cmd.stdout.on("data", (data) => {
           try {
             // this.LogDebug('GetCronTab on.stdout.data', { data: data.toString() });
             stdout = data.toString();
           } catch (e) {
-            this.LogError("Error handling stdout in GetCronTab", e.stack, {error: e.toString()});
+            this.LogError("Error handling stdout in GetCronTab", e.stack, {
+              error: e.toString(),
+            });
             resolve(null);
           }
         });
 
         cmd.on("exit", (code) => {
           try {
-            resolve({code: code, stdout: stdout});
+            resolve({ code: code, stdout: stdout });
           } catch (e) {
-            this.LogError("Error handling exit in GetCronTab", e.stack, {error: e.toString()});
+            this.LogError("Error handling exit in GetCronTab", e.stack, {
+              error: e.toString(),
+            });
             resolve(null);
           }
         });
       } catch (e) {
-        this.LogError(`GetCronTab error`, e.stack, {commandString, error: e.toString()});
+        this.LogError(`GetCronTab error`, e.stack, {
+          commandString,
+          error: e.toString(),
+        });
         resolve(null);
       }
     });

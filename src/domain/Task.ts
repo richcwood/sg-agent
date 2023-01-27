@@ -1,5 +1,5 @@
 import * as mongodb from "mongodb";
-import {MongoDbSettings} from "aws-sdk/clients/dms";
+import { MongoDbSettings } from "aws-sdk/clients/dms";
 
 export class TaskSchema {
   id?: mongodb.ObjectId;
