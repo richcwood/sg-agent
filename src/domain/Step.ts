@@ -1,45 +1,45 @@
-import * as mongodb from "mongodb";
+import * as mongodb from 'mongodb';
 
 export class StepSchema {
-  _id?: mongodb.ObjectId;
+    _id?: mongodb.ObjectId;
 
-  id?: mongodb.ObjectId;
+    id?: mongodb.ObjectId;
 
-  _teamId: mongodb.ObjectId;
+    _teamId: mongodb.ObjectId;
 
-  _jobId: mongodb.ObjectId;
+    _jobId: mongodb.ObjectId;
 
-  _taskId: mongodb.ObjectId;
+    _taskId: mongodb.ObjectId;
 
-  name: string;
+    name: string;
 
-  order: number;
+    order: number;
 
-  script: any;
+    script: any;
 
-  command?: string;
+    command?: string;
 
-  arguments: string;
+    arguments: string;
 
-  variables: any;
+    variables: any;
 
-  lastUpdateId: number;
+    lastUpdateId: number;
 
-  lambdaRuntime?: string;
+    lambdaRuntime?: string;
 
-  lambdaMemorySize?: number;
+    lambdaMemorySize?: number;
 
-  lambdaTimeout?: number;
+    lambdaTimeout?: number;
 
-  lambdaZipfile?: string;
+    lambdaZipfile?: string;
 
-  lambdaFunctionHandler?: string;
+    lambdaFunctionHandler?: string;
 
-  lambdaRole?: string;
+    lambdaRole?: string;
 
-  s3Bucket?: string;
+    s3Bucket?: string;
 
-  lambdaAWSRegion?: string;
+    lambdaAWSRegion?: string;
 
-  lambdaDependencies?: string;
+    lambdaDependencies?: string;
 }

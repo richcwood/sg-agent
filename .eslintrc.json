@@ -1,0 +1,25 @@
+{
+    "root": true,
+    "extends": [
+        "eslint:recommended",
+        "plugin:@typescript-eslint/recommended",
+        "plugin:prettier/recommended"
+    ],
+    "parser": "@typescript-eslint/parser",
+    "parserOptions": { "project": ["./tsconfig.json"] },
+    "plugins": [
+        "@typescript-eslint"
+    ],
+    "rules": {
+        "@typescript-eslint/strict-boolean-expressions": [
+            0,
+            {
+                "allowString" : true,
+                "allowNumber" : true,
+                "allowNullableObject" : true
+            }
+        ],
+        "@typescript-eslint/no-var-requires": 0
+    },
+    "ignorePatterns": ["dist"]
+}
