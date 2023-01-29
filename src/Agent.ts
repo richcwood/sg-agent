@@ -1,33 +1,40 @@
-const spawn = require('child_process').spawn;
-const Tail = require('tail').Tail;
-import * as os from 'os';
-import * as fs from 'fs';
-import * as fse from 'fs-extra';
-import * as path from 'path';
-import axios from 'axios';
-import { AgentLogger } from './shared/SGAgentLogger';
-import { StompConnector } from './shared/StompLib';
-import { LogLevel } from './shared/Enums';
-import { SGUtils } from './shared/SGUtils';
-import { SGStrings } from './shared/SGStrings';
-import * as Enums from './shared/Enums';
-import { TaskFailureCode } from './shared/Enums';
-import { TaskDefTarget } from './shared/Enums';
-import { TaskSchema } from './domain/Task';
-import { StepSchema } from './domain/Step';
-import { TaskOutcomeSchema } from './domain/TaskOutcome';
-import { StepOutcomeSchema } from './domain/StepOutcome';
-import * as util from 'util';
-import * as ipc from 'node-ipc';
-import * as sysinfo from 'systeminformation';
-import * as es from 'event-stream';
-import * as truncate from 'truncate-utf8-bytes';
-import * as mongodb from 'mongodb';
 const moment = require('moment');
 const mtz = require('moment-timezone');
+const spawn = require('child_process').spawn;
+const Tail = require('tail').Tail;
+
+import * as es from 'event-stream';
+import * as fs from 'fs';
+import * as fse from 'fs-extra';
+import * as ipc from 'node-ipc';
+import * as mongodb from 'mongodb';
+import * as os from 'os';
+import * as path from 'path';
+import * as sysinfo from 'systeminformation';
+import * as truncate from 'truncate-utf8-bytes';
+import * as util from 'util';
 import * as _ from 'lodash';
 import * as AsyncLock from 'async-lock';
+
+import axios from 'axios';
+
+import { StepSchema } from './domain/Step';
+import { StepOutcomeSchema } from './domain/StepOutcome';
+import { TaskSchema } from './domain/Task';
 import { IPCClient, IPCServer } from './shared/Comm';
+import {
+    LogLevel,
+    ScriptType,
+    ScriptTypeDetails,
+    StepStatus,
+    TaskDefTarget,
+    TaskFailureCode,
+    TaskStatus,
+} from './shared/Enums';
+import { AgentLogger } from './shared/SGAgentLogger';
+import { SGStrings } from './shared/SGStrings';
+import { SGUtils } from './shared/SGUtils';
+import { StompConnector } from './shared/StompLib';
 
 const version = 'v0.0.80';
 const SG_AGENT_CONFIG_FILE_NAME = 'sg.cfg';
@@ -89,7 +96,7 @@ export default class Agent {
     private numLinesInTail = 5;
     private maxSizeLineInTail = 10240; //bytes
     private sendUpdatesInterval = 10000;
-    private queueCompleteMessages: any[] = [];
+    private queueAPICall: any[] = [];
     private offline = false;
     private mainProcessInterrupted = false;
     private lastStompConnectAttemptTime = 0;
@@ -215,7 +222,12 @@ export default class Agent {
             sysInfo: await this.GetSysInfo(),
         };
 
-        agentProperties = await this.RestAPICall(`agent`, 'POST', null, agent_info);
+        agentProperties = await this.RestAPICall(`agent`, 'POST', {
+            data: agent_info,
+            retryWithBackoff: true,
+        });
+
+        this.instanceId = new mongodb.ObjectId(agentProperties.id);
 
         return agentProperties;
     }
@@ -255,27 +267,18 @@ export default class Agent {
 
         let agentProperties: any = {};
         try {
-            agentProperties = await this.RestAPICall(
-                `agent/machineid/${this.MachineId()}`,
-                'GET',
-                { _teamId: this._teamId },
-                null
-            );
-        } catch (err) {
-            if (err.response.status == 404) {
-                this.logger.LogDebug(`Error getting agent properties`, {
-                    error: err.toString(),
-                });
+            agentProperties = await this.RestAPICall(`agent/machineid/${this.MachineId()}`, 'GET', {
+                headers: { _teamId: this._teamId },
+            });
+            this.instanceId = new mongodb.ObjectId(agentProperties.id);
+        } catch (e) {
+            if (e.response && e.response.status == 404) {
                 agentProperties = await this.CreateAgentInAPI();
             } else {
-                this.logger.LogError(`Error getting agent properties`, err.stack, {
-                    error: err.toString(),
-                });
-                throw err;
+                this.logger.LogError(`Error getting agent properties`, e.stack, SGUtils.errorToObj(e));
+                throw e;
             }
         }
-
-        this.instanceId = new mongodb.ObjectId(agentProperties.id);
         this.inactiveAgentQueueTTL = agentProperties.inactiveAgentQueueTTL;
         this.stompUrl = agentProperties.stompUrl;
         this.rmqAdminUrl = agentProperties.rmqAdminUrl;
@@ -285,7 +288,13 @@ export default class Agent {
 
         if (!this.areObjectsEqual(this.tags, agentProperties.tags)) {
             if (this.tags) {
-                await this.RestAPICall(`agent/tags/${this.instanceId.toHexString()}`, 'PUT', null, { tags: this.tags });
+                try {
+                    await this.RestAPICall(`agent/tags/${this.instanceId.toHexString()}`, 'PUT', {
+                        data: { tags: this.tags },
+                    });
+                } catch (e) {
+                    this.logger.LogError(`Error updating agent tags`, e.stack, SGUtils.errorToObj(e));
+                }
             } else {
                 this.tags = agentProperties.tags;
             }
@@ -298,12 +307,13 @@ export default class Agent {
                     if (!(key in this.userConfig.propertyOverrides))
                         this.userConfig.propertyOverrides[key] = agentProperties.propertyOverrides[key];
                 }
-                await this.RestAPICall(
-                    `agent/properties/${this.instanceId.toHexString()}`,
-                    'PUT',
-                    null,
-                    this.userConfig.propertyOverrides
-                );
+                this.queueAPICall.push({
+                    url: `agent/properties/${this.instanceId.toHexString()}`,
+                    method: 'PUT',
+                    headers: null,
+                    data: this.userConfig.propertyOverrides,
+                });
+
                 // await this.UpdatePropertyOverridesAPI(this.userConfig.propertyOverrides)
             }
         }
@@ -354,7 +364,9 @@ export default class Agent {
                                 this.LogError(`Error connecting to agent launcher - restarting`, '', e);
                                 try {
                                     this.RunAgentStub();
-                                } catch (e) {}
+                                } catch (e) {
+                                    this.LogError('Error starting agent launcher', '', SGUtils.errorToObj(e));
+                                }
                             }
                         }, 1000);
                     }
@@ -379,7 +391,7 @@ export default class Agent {
 
         this.timeLastActive = Date.now();
         this.CheckInactiveTime();
-        this.SendCompleteMessages();
+        this.SendMessageToAPIAsync();
     }
 
     async SignalHandler(signal) {
@@ -406,7 +418,7 @@ export default class Agent {
             if (sleepCount >= maxSleepCount) break;
         }
 
-        while (this.queueCompleteMessages && this.queueCompleteMessages.length > 0) {
+        while (this.queueAPICall && this.queueAPICall.length > 0) {
             await SGUtils.sleep(500);
             sleepCount += 1;
             if (sleepCount >= maxSleepCount) break;
@@ -419,8 +431,10 @@ export default class Agent {
 
     async GetArtifact(artifactId: string, destPath: string, _teamId: string) {
         return new Promise(async (resolve, reject) => {
+            const artifactPrefix = '';
+            const artifactName = '';
             try {
-                const artifact: any = await this.RestAPICall(`artifact/${artifactId}`, 'GET', null, null);
+                const artifact: any = await this.RestAPICall(`artifact/${artifactId}`, 'GET');
                 const artifactPath = `${destPath}/${artifact.name}`;
                 const writer = fs.createWriteStream(artifactPath);
 
@@ -442,19 +456,20 @@ export default class Agent {
                 if (SGUtils.GetFileExt(artifact.name) == '.gz') {
                     await SGUtils.GunzipFile(artifactPath);
                 }
-                resolve(artifactSize);
+                resolve({ success: true, artifactSize });
             } catch (e) {
-                this.logger.LogError(`Error downloading artifact`, e.stack, {
-                    artifactId,
-                    error: e.toString(),
+                resolve({
+                    success: false,
+                    error: SGUtils.errorToObj(e),
+                    artifactPrefix,
+                    artifactName,
                 });
-                reject(e);
             }
         });
     }
 
     async RestAPILogin(retryCount = 0) {
-        return new Promise<void>(async (resolve, reject) => {
+        return new Promise<void>((resolve, reject) => {
             // console.log('Waiting to aquire lockRefreshToken');
             lock.acquire(
                 lockApiLogin,
@@ -518,7 +533,7 @@ export default class Agent {
     }
 
     async RefreshAPIToken(retryCount = 0) {
-        return new Promise<void>(async (resolve, reject) => {
+        return new Promise<void>((resolve, reject) => {
             // console.log('Waiting to aquire lockRefreshToken');
             lock.acquire(
                 lockRefreshToken,
@@ -578,8 +593,13 @@ export default class Agent {
         });
     }
 
-    async RestAPICall(url: string, method: string, headers: any = {}, data: any = {}) {
-        return new Promise(async (resolve, reject) => {
+    async RestAPICall(url: string, method: string, options = {}) {
+        const mergedOptions = {
+            ...{ headers: {}, data: {}, retryWithBackoff: false },
+            ...options,
+        };
+        const waitTimesBackoff = [1000, 5000, 10000, 20000, 30000, 60000];
+        while (true) {
             let fullurl = '';
             try {
                 if (!this.token) await this.RestAPILogin();
@@ -592,28 +612,41 @@ export default class Agent {
                 if (apiPort != '') apiUrl += `:${apiPort}`;
                 fullurl = `${apiUrl}/api/${apiVersion}/${url}`;
 
-                const combinedHeaders: any = Object.assign(
+                const combinedHeaders = Object.assign(
                     {
                         Cookie: `Auth=${this.token};`,
                         _teamId: this._teamId,
                     },
-                    headers
+                    mergedOptions.headers
                 );
 
                 // this.logger.LogDebug(`RestAPICall`, {fullurl, method, combinedHeaders, data, token: this.token});
-                // console.log('Agent RestAPICall -> url ', fullurl, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.token);
+                console.log(
+                    'Agent RestAPICall -> url ',
+                    fullurl,
+                    ', method -> ',
+                    method,
+                    ', headers -> ',
+                    JSON.stringify(combinedHeaders, null, 4),
+                    ', data -> ',
+                    JSON.stringify(mergedOptions.data, null, 4),
+                    ', token -> ',
+                    this.token
+                );
 
                 const response = await axios({
                     url: fullurl,
                     method: method,
                     responseType: 'text',
                     headers: combinedHeaders,
-                    data: data,
+                    data: mergedOptions.data,
                 });
 
-                resolve(response.data.data);
+                return response.data.data;
             } catch (e) {
-                if (
+                if (e.response && e.response.status == 404) {
+                    await this.CreateAgentInAPI();
+                } else if (
                     e.response &&
                     e.response.data &&
                     e.response.data.errors &&
@@ -622,23 +655,43 @@ export default class Agent {
                     e.response.data.errors[0].description == 'The access token expired'
                 ) {
                     await this.RefreshAPIToken();
-                    resolve(this.RestAPICall(url, method, headers, data));
-                } else {
-                    this.logger.LogDebug(`RestAPICall error`, {
-                        error: e.toString(),
-                        url: fullurl,
+                    return this.RestAPICall(url, method, {
+                        headers: mergedOptions.headers,
+                        data: mergedOptions.data,
+                        retryWithBackoff: mergedOptions.retryWithBackoff,
                     });
-                    e.message = `Error occurred calling ${method} on '${fullurl}': ${e.message}`;
-                    reject(e);
+                } else {
+                    const exceptionObj = (e.response && e.response.data) || e;
+                    const errorContext = Object.assign(
+                        {
+                            http_method: method,
+                            url: fullurl,
+                            data: mergedOptions.data,
+                        },
+                        e.cause
+                    );
+                    const status = e.response && e.response.status;
+                    if (mergedOptions.retryWithBackoff && !status) {
+                        const waitTime = waitTimesBackoff.shift() || 60000;
+                        this.LogError(
+                            `Error sending message to API - retrying`,
+                            e.stack,
+                            Object.assign({ retry_wait_time: waitTime }, errorContext)
+                        );
+                        await SGUtils.sleep(waitTime);
+                    } else {
+                        // this.logger.LogError(`Error sending message to API`, e.stack, errorContext);
+                        throw errorContext;
+                    }
                 }
             }
-        });
+        }
     }
 
     getUserConfigValues = () => {
         let userConfig = {};
         try {
-            if (fs.existsSync(this.userConfigPath)) {
+            if (this.env != 'unittest' && fs.existsSync(this.userConfigPath)) {
                 userConfig = JSON.parse(fs.readFileSync(this.userConfigPath).toString());
             }
         } catch (e) {
@@ -649,15 +702,17 @@ export default class Agent {
     };
 
     updateUserConfigValues = (values: any) => {
-        if (this.env == 'unittest') return;
-
         const userConfig: any = this.getUserConfigValues();
         if (values.propertyOverrides) {
             if (!userConfig.propertyOverrides) userConfig.propertyOverrides = {};
             for (let i = 0; i < Object.keys(values.propertyOverrides).length; i++) {
                 const key = Object.keys(values.propertyOverrides)[i];
-                if (values.propertyOverrides[key] == null) delete userConfig.propertyOverrides[key];
-                else userConfig.propertyOverrides[key] = values.propertyOverrides[key];
+                if (values.propertyOverrides[key] == null) {
+                    delete userConfig.propertyOverrides[key];
+                } else {
+                    userConfig.propertyOverrides[key] = values.propertyOverrides[key];
+                    if (key == 'inactiveAgentJob') this.inactiveAgentJob = userConfig.propertyOverrides[key];
+                }
             }
         }
 
@@ -665,7 +720,7 @@ export default class Agent {
             userConfig.tags = values.tags;
         }
 
-        fs.writeFileSync(this.userConfigPath, JSON.stringify(userConfig, null, 4));
+        if (this.env != 'unittest') fs.writeFileSync(this.userConfigPath, JSON.stringify(userConfig, null, 4));
     };
 
     areTagArraysEqual = (first: any[], second: any[]) => {
@@ -780,11 +835,11 @@ export default class Agent {
                 offline: this.offline,
             };
 
-            await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, 'PUT', null, heartbeat_info);
-        } catch (e) {
-            this.LogError(`Error sending disconnect message`, e.stack, {
-                error: e.toString(),
+            await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, 'PUT', {
+                data: heartbeat_info,
             });
+        } catch (e) {
+            this.LogError(`Error sending disconnect message`, e.stack, SGUtils.errorToObj(e));
         }
     }
 
@@ -836,12 +891,9 @@ export default class Agent {
             }
 
             try {
-                const ret: any = await this.RestAPICall(
-                    `agent/heartbeat/${this.instanceId}`,
-                    'PUT',
-                    null,
-                    heartbeat_info
-                );
+                const ret: any = await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, 'PUT', {
+                    data: heartbeat_info,
+                });
 
                 if (ret.tasksToCancel) {
                     this.LogDebug('Received tasks to cancel from heartbeat', {
@@ -870,9 +922,7 @@ export default class Agent {
         } catch (e) {
             if (!this.stopped) {
                 delete e.request;
-                const errorData = { Error: e.message };
-                if (e.response) errorData['Data'] = e.response.data;
-                this.LogError(`Error sending heartbeat`, '', errorData);
+                this.LogError(`Error sending heartbeat`, '', SGUtils.errorToObj(e));
                 if (!once)
                     setTimeout(() => {
                         this.SendHeartbeat();
@@ -906,7 +956,12 @@ export default class Agent {
                             createdBy: this.MachineId(),
                         };
 
-                        await this.RestAPICall(`job`, 'POST', { _jobDefId: this.inactiveAgentJob.id }, data);
+                        this.queueAPICall.push({
+                            url: `job`,
+                            method: 'POST',
+                            headers: { _jobDefId: this.inactiveAgentJob.id },
+                            data,
+                        });
                     } catch (e) {
                         this.LogError('Error running inactive agent job', e.stack, {
                             inactiveAgentJob: this.inactiveAgentJob,
@@ -915,40 +970,61 @@ export default class Agent {
                     }
                 }
             }
-            if (!this.stopped)
+            if (!this.stopped) {
                 setTimeout(() => {
                     this.CheckInactiveTime();
                 }, 1000);
+            }
         } catch (e) {
             if (!this.stopped) throw e;
         }
     }
 
-    async SendCompleteMessages() {
+    async SendMessageToAPIAsync() {
         // this.LogDebug('Checking message queue', {});
-        while (this.queueCompleteMessages.length > 0) {
-            const msg: any = this.queueCompleteMessages.shift();
+        let waitTimesBackoff = [1000, 5000, 10000, 20000, 30000, 60000];
+        while (this.queueAPICall.length > 0) {
+            const msg: any = this.queueAPICall.shift();
             try {
                 // this.LogDebug('Sending queued message', { 'request': msg });
-                await this.RestAPICall(msg.url, msg.method, msg.headers, msg.data);
-                // this.queueCompleteMessages.shift();
+                await this.RestAPICall(msg.url, msg.method, {
+                    headers: msg.headers,
+                    data: msg.data,
+                });
+                waitTimesBackoff = [1000, 5000, 10000, 20000, 30000, 60000];
+                // this.queueAPICall.shift();
                 // this.LogDebug('Sent queued message', { 'request': msg });
             } catch (e) {
                 if (!this.stopped) {
                     if (e.response && e.response.data && e.response.data.statusCode) {
-                        this.LogError(`Error sending complete message`, e.stack, {
-                            request: msg,
-                            response: e.response.data,
-                            error: e.toString(),
-                        });
-                        // this.queueCompleteMessages.shift();
+                        this.LogError(
+                            `Error sending message to API`,
+                            e.stack,
+                            Object.assign(
+                                {
+                                    method: 'SendMessageToAPIAsync',
+                                    request: msg,
+                                },
+                                SGUtils.errorToObj(e)
+                            )
+                        );
+                        // this.queueAPICall.shift();
                     } else {
-                        this.LogError(`Error sending complete message`, e.stack, {
-                            request: msg,
-                            error: e.toString(),
-                        });
-                        this.queueCompleteMessages.unshift(msg);
-                        await SGUtils.sleep(10000);
+                        const waitTime = waitTimesBackoff.shift() || 60000;
+                        this.LogError(
+                            `Error sending message to API - retrying`,
+                            e.stack,
+                            Object.assign(
+                                {
+                                    method: 'SendMessageToAPIAsync',
+                                    request: msg,
+                                    retry_wait_time: waitTime,
+                                },
+                                SGUtils.errorToObj(e)
+                            )
+                        );
+                        this.queueAPICall.unshift(msg);
+                        await SGUtils.sleep(waitTime);
                     }
                 } else {
                     break;
@@ -956,7 +1032,7 @@ export default class Agent {
             }
         }
         setTimeout(() => {
-            this.SendCompleteMessages();
+            this.SendMessageToAPIAsync();
         }, 1000);
     }
 
@@ -1117,8 +1193,7 @@ export default class Agent {
         });
     }
 
-    async ParseScriptStderr(filePath: string, task: any) {
-        const appInst = this;
+    ParseScriptStderr = async (filePath: string, task: any) => {
         return new Promise((resolve, reject) => {
             try {
                 let lineCount = 0;
@@ -1135,11 +1210,11 @@ export default class Agent {
 
                                 lineCount += 1;
                                 if (line) {
-                                    line = appInst.ReplaceSensitiveRuntimeVarValuesInString(line, task.runtimeVars);
-                                    if (Buffer.byteLength(output, 'utf8') < appInst.maxStderrSize) {
+                                    line = this.ReplaceSensitiveRuntimeVarValuesInString(line, task.runtimeVars);
+                                    if (Buffer.byteLength(output, 'utf8') < this.maxStderrSize) {
                                         output += `${line}\n`;
-                                        if (Buffer.byteLength(output, 'utf8') > appInst.maxStderrSize)
-                                            output = truncate(output, appInst.maxStderrSize) + ' (truncated)';
+                                        if (Buffer.byteLength(output, 'utf8') > this.maxStderrSize)
+                                            output = truncate(output, this.maxStderrSize) + ' (truncated)';
                                     }
                                 }
 
@@ -1159,7 +1234,7 @@ export default class Agent {
                 reject(e);
             }
         });
-    }
+    };
 
     GetSysInfo = async () => {
         const sysInfo: any = {};
@@ -1285,7 +1360,7 @@ export default class Agent {
 
                 if (Object.keys(rtvUpdates).length > 0) {
                     // console.log(`****************** taskOutcomeId -> ${params.taskOutcomeId}, runtimeVars -> ${JSON.stringify(rtvUpdates)}`);
-                    params.appInst.queueCompleteMessages.push({
+                    params.appInst.queueAPICall.push({
                         url: `taskOutcome/${params.taskOutcomeId}`,
                         method: 'PUT',
                         headers: null,
@@ -1329,18 +1404,16 @@ export default class Agent {
                         _teamId: params._teamId,
                         tail: params.lastXLines,
                         stdout: stdoutToUpload,
-                        status: Enums.StepStatus.RUNNING,
+                        status: StepStatus.RUNNING,
                         lastUpdateId: params.updateId,
                     };
                     params.updateId += 1;
-                    await params.appInst.RestAPICall(`stepOutcome/${params.stepOutcomeId}`, 'PUT', null, updates);
+                    await params.appInst.RestAPICall(`stepOutcome/${params.stepOutcomeId}`, 'PUT', { data: updates });
 
                     if (params.stdoutTruncated) break;
                 }
             } catch (err) {
-                this.LogError(`Error handling stdout tail`, err.stack, {
-                    error: err.toString(),
-                });
+                this.LogError(`Error handling stdout tail`, err.stack, SGUtils.errorToObj(err));
                 await SGUtils.sleep(1000);
             }
         }
@@ -1409,10 +1482,10 @@ export default class Agent {
                         _teamId: runParams._teamId,
                         tail: runParams.lastXLines,
                         stdout: msg,
-                        status: Enums.StepStatus.RUNNING,
+                        status: StepStatus.RUNNING,
                         lastUpdateId: runParams.updateId,
                     };
-                    await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, 'PUT', null, updates);
+                    await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, 'PUT', { data: updates });
                     runParams.updateId += 1;
 
                     if (step.lambdaRuntime.toLowerCase().startsWith('node')) {
@@ -1476,8 +1549,8 @@ export default class Agent {
                         lambdaFileLoadedToSGAWS = true;
                     }
                 } else {
-                    const artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, 'GET', null, {
-                        _teamId,
+                    const artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, 'GET', {
+                        data: { _teamId },
                     });
                     lambdaCode.S3Bucket = step.s3Bucket;
 
@@ -1522,10 +1595,10 @@ export default class Agent {
                     _teamId: runParams._teamId,
                     tail: runParams.lastXLines,
                     stdout: msg,
-                    status: Enums.StepStatus.RUNNING,
+                    status: StepStatus.RUNNING,
                     lastUpdateId: runParams.updateId,
                 };
-                await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, 'PUT', null, updates);
+                await appInst.RestAPICall(`stepOutcome/${runParams.stepOutcomeId}`, 'PUT', { data: updates });
                 runParams.updateId += 1;
 
                 let payload = {};
@@ -1616,12 +1689,12 @@ export default class Agent {
                 let code;
                 if (error == '') {
                     code = 0;
-                    outParams[SGStrings.status] = Enums.StepStatus.SUCCEEDED;
+                    outParams[SGStrings.status] = StepStatus.SUCCEEDED;
                 } else {
                     code = -1;
                     runtimeVars['route'] = { value: 'fail' };
-                    outParams[SGStrings.status] = Enums.StepStatus.FAILED;
-                    outParams['failureCode'] = Enums.TaskFailureCode.TASK_EXEC_ERROR;
+                    outParams[SGStrings.status] = StepStatus.FAILED;
+                    outParams['failureCode'] = TaskFailureCode.TASK_EXEC_ERROR;
                 }
 
                 outParams['runtimeVars'] = runtimeVars;
@@ -1641,13 +1714,11 @@ export default class Agent {
                 resolve(outParams);
             } catch (e) {
                 const errMsg: string = e.message || e.toString();
-                this.LogError('Error in RunStepAsync_Lambda', e.stack, {
-                    error: errMsg,
-                });
+                this.LogError('Error in RunStepAsync_Lambda', e.stack, SGUtils.errorToObj(e));
                 await SGUtils.sleep(1000);
                 error += errMsg + '\n';
                 resolve({
-                    status: Enums.StepStatus.FAILED,
+                    status: StepStatus.FAILED,
                     code: -1,
                     route: 'fail',
                     stderr: error,
@@ -1672,30 +1743,30 @@ export default class Agent {
 
                 let scriptFileName = workingDirectory + path.sep + SGUtils.makeid(10);
 
-                if (script.scriptType == Enums.ScriptType.NODE) {
+                if (script.scriptType == ScriptType.NODE) {
                     scriptFileName += '.js';
-                } else if (script.scriptType == Enums.ScriptType.PYTHON) {
+                } else if (script.scriptType == ScriptType.PYTHON) {
                     scriptFileName += '.py';
-                } else if (script.scriptType == Enums.ScriptType.SH) {
+                } else if (script.scriptType == ScriptType.SH) {
                     scriptFileName += '.sh';
-                } else if (script.scriptType == Enums.ScriptType.CMD) {
+                } else if (script.scriptType == ScriptType.CMD) {
                     scriptFileName += '.bat';
-                } else if (script.scriptType == Enums.ScriptType.RUBY) {
+                } else if (script.scriptType == ScriptType.RUBY) {
                     scriptFileName += '.rb';
-                } else if (script.scriptType == Enums.ScriptType.LUA) {
+                } else if (script.scriptType == ScriptType.LUA) {
                     scriptFileName += '.lua';
-                } else if (script.scriptType == Enums.ScriptType.PERL) {
+                } else if (script.scriptType == ScriptType.PERL) {
                     scriptFileName += '.pl';
-                } else if (script.scriptType == Enums.ScriptType.PHP) {
+                } else if (script.scriptType == ScriptType.PHP) {
                     scriptFileName += '.php';
-                } else if (script.scriptType == Enums.ScriptType.POWERSHELL) {
+                } else if (script.scriptType == ScriptType.POWERSHELL) {
                     scriptFileName += '.ps1';
                 }
 
                 // console.log('script -> ', JSON.stringify(script, null, 4));
                 fs.writeFileSync(scriptFileName, SGUtils.atob(script.code));
 
-                if (script.scriptType == Enums.ScriptType.SH) {
+                if (script.scriptType == ScriptType.SH) {
                     await new Promise<null | any>(async (resolve, reject) => {
                         fs.chmod(scriptFileName, 0o0755, (err) => {
                             if (err) reject(err);
@@ -1708,10 +1779,8 @@ export default class Agent {
                 if (step.command) {
                     commandString = step.command.trim() + ' ';
                 } else {
-                    if (script.scriptType != Enums.ScriptType.CMD && script.scriptType != Enums.ScriptType.SH) {
-                        commandString += `${
-                            Enums.ScriptTypeDetails[Enums.ScriptType[script.scriptType.toString()]].cmd
-                        } `;
+                    if (script.scriptType != ScriptType.CMD && script.scriptType != ScriptType.SH) {
+                        commandString += `${ScriptTypeDetails[ScriptType[script.scriptType.toString()]].cmd} `;
                     }
                 }
                 commandString += scriptFileName;
@@ -1781,7 +1850,7 @@ export default class Agent {
                             error: err.toString(),
                         });
                         resolve({
-                            status: Enums.StepStatus.FAILED,
+                            status: StepStatus.FAILED,
                             code: -1,
                             route: 'fail',
                             stderr: err,
@@ -1849,15 +1918,15 @@ export default class Agent {
 
                         const outParams: any = {};
                         if (code == 0) {
-                            outParams[SGStrings.status] = Enums.StepStatus.SUCCEEDED;
+                            outParams[SGStrings.status] = StepStatus.SUCCEEDED;
                         } else {
                             if (signal == 'SIGTERM' || signal == 'SIGINT' || this.mainProcessInterrupted) {
                                 runtimeVars['route'] = { value: 'interrupt' };
-                                outParams[SGStrings.status] = Enums.StepStatus.INTERRUPTED;
+                                outParams[SGStrings.status] = StepStatus.INTERRUPTED;
                             } else {
                                 runtimeVars['route'] = { value: 'fail' };
-                                outParams[SGStrings.status] = Enums.StepStatus.FAILED;
-                                outParams['failureCode'] = Enums.TaskFailureCode.TASK_EXEC_ERROR;
+                                outParams[SGStrings.status] = StepStatus.FAILED;
+                                outParams['failureCode'] = TaskFailureCode.TASK_EXEC_ERROR;
                             }
                         }
 
@@ -1876,7 +1945,7 @@ export default class Agent {
                             error: e.toString(),
                         });
                         resolve({
-                            status: Enums.StepStatus.FAILED,
+                            status: StepStatus.FAILED,
                             code: -1,
                             route: 'fail',
                             stderr: JSON.stringify(e),
@@ -1917,8 +1986,8 @@ export default class Agent {
 
                             if (Object.keys(rtvUpdates).length > 0) {
                                 // console.log(`****************** taskOutcomeId -> ${taskOutcomeId}`);
-                                await appInst.RestAPICall(`taskOutcome/${taskOutcomeId}`, 'PUT', null, {
-                                    runtimeVars: rtvUpdates,
+                                await appInst.RestAPICall(`taskOutcome/${taskOutcomeId}`, 'PUT', {
+                                    data: { runtimeVars: rtvUpdates },
                                 });
                             }
                         }
@@ -1969,29 +2038,27 @@ export default class Agent {
                             const updates: any = {
                                 tail: lastXLines,
                                 stdout: stdoutToUpload,
-                                status: Enums.StepStatus.RUNNING,
+                                status: StepStatus.RUNNING,
                                 lastUpdateId: updateId,
                             };
                             updateId += 1;
-                            await appInst.RestAPICall(`stepOutcome/${stepOutcomeId}`, 'PUT', null, updates);
+                            await appInst.RestAPICall(`stepOutcome/${stepOutcomeId}`, 'PUT', {
+                                data: updates,
+                            });
 
                             if (stdoutTruncated) break;
                         }
                     } catch (err) {
-                        this.LogError(`Error handling stdout tail`, err.stack, {
-                            error: err.toString(),
-                        });
+                        this.LogError(`Error handling stdout tail`, err.stack, SGUtils.errorToObj(err));
                         await SGUtils.sleep(1000);
                     }
                 }
                 stdoutAnalysisFinished = true;
             } catch (e) {
-                this.LogError('Error in RunStepAsync', e.stack, {
-                    error: e.toString(),
-                });
+                this.LogError('Error in RunStepAsync', e.stack, SGUtils.errorToObj(e));
                 await SGUtils.sleep(1000);
                 resolve({
-                    status: Enums.StepStatus.FAILED,
+                    status: StepStatus.FAILED,
                     code: -1,
                     route: 'fail',
                     stderr: e.message,
@@ -2010,271 +2077,289 @@ export default class Agent {
 
         if (!fs.existsSync(workingDirectory)) fs.mkdirSync(workingDirectory);
 
-        let artifactsDownloadedSize = 0;
-        if (task.artifacts) {
-            for (let i = 0; i < task.artifacts.length; i++) {
-                let artifactSize = 0;
-                try {
-                    artifactSize = <number>await this.GetArtifact(task.artifacts[i], workingDirectory, this._teamId);
-                } catch (err) {
-                    this.LogError('Error in RunTask: ' + err.message, err.stack, task.artifacts[i]);
+        try {
+            let artifactsDownloadedSize = 0;
+            if (task.artifacts) {
+                for (let i = 0; i < task.artifacts.length; i++) {
+                    const getArtifactResult: any = await this.GetArtifact(
+                        task.artifacts[i],
+                        workingDirectory,
+                        this._teamId
+                    );
+                    if (!getArtifactResult.success) {
+                        this.logger.LogError(`Error downloading artifact`, '', {
+                            _artifactId: task.artifacts[i],
+                            error: getArtifactResult.error.toString(),
+                        });
+                        let execError;
+                        if (getArtifactResult.artifactName) {
+                            execError = 'Error downloading artifact ';
+                            if (getArtifactResult.artifactPrefix) execError += `${getArtifactResult.artifactPrefix}/`;
+                            execError += `${getArtifactResult.artifactName}`;
+                        } else {
+                            execError = `Error downloading artifact - no artifact exists with id ${task.artifacts[i]}`;
+                        }
+                        const taskOutcome: any = {
+                            status: TaskStatus.FAILED,
+                            failureCode: TaskFailureCode.ARTIFACT_DOWNLOAD_ERROR,
+                            execError,
+                            ipAddress: this.ipAddress,
+                            machineId: this.MachineId(),
+                        };
+                        await this.RestAPICall(`taskOutcome/${task._taskOutcomeId}`, 'PUT', {
+                            data: taskOutcome,
+                            retryWithBackoff: true,
+                        });
+                        throw {
+                            name: 'ArtifactDownloadError',
+                        };
+                    }
+                    artifactsDownloadedSize += getArtifactResult.artifactSize;
                 }
-                artifactsDownloadedSize += artifactSize;
             }
-        }
 
-        let allStepsCompleted = true;
+            let allStepsCompleted = true;
 
-        let stepsAsc: StepSchema[] = (<any>task).steps;
-        // console.log('Agent -> RunTask -> stepsAsc -> beforesort -> ', util.inspect(stepsAsc, false, null));
-        stepsAsc = stepsAsc.sort((a: StepSchema, b: StepSchema) =>
-            a.order > b.order ? 1 : a.order < b.order ? -1 : 0
-        );
-        // console.log('Agent -> RunTask -> stepsAsc -> ', util.inspect(stepsAsc, false, null));
+            let stepsAsc: StepSchema[] = (<any>task).steps;
+            // console.log('Agent -> RunTask -> stepsAsc -> beforesort -> ', util.inspect(stepsAsc, false, null));
+            stepsAsc = stepsAsc.sort((a: StepSchema, b: StepSchema) =>
+                a.order > b.order ? 1 : a.order < b.order ? -1 : 0
+            );
+            // console.log('Agent -> RunTask -> stepsAsc -> ', util.inspect(stepsAsc, false, null));
 
-        let taskOutcome: any = {
-            status: Enums.TaskStatus.RUNNING,
-            dateStarted: dateStarted,
-            ipAddress: this.ipAddress,
-            machineId: this.MachineId(),
-            artifactsDownloadedSize: artifactsDownloadedSize,
-        };
-        taskOutcome = <TaskOutcomeSchema>(
-            await this.RestAPICall(`taskOutcome/${task._taskOutcomeId}`, 'PUT', null, taskOutcome)
-        );
-        // console.log('taskOutcome -> POST -> ', util.inspect(taskOutcome, false, null));
-        if (taskOutcome.status == Enums.TaskStatus.RUNNING) {
-            let lastStepOutcome = undefined;
-            for (const step of stepsAsc) {
-                if (step.variables) {
-                    const newEnv: any = _.clone(step.variables);
-                    for (let e = 0; e < Object.keys(newEnv).length; e++) {
-                        const eKey = Object.keys(newEnv)[e];
-                        if (eKey in task.runtimeVars) {
-                            newEnv[eKey] = task.runtimeVars[eKey]['value'];
-                        }
-                    }
-                    step.variables = newEnv;
-                }
+            let taskOutcome: any = {
+                status: TaskStatus.RUNNING,
+                dateStarted: dateStarted,
+                ipAddress: this.ipAddress,
+                machineId: this.MachineId(),
+                artifactsDownloadedSize: artifactsDownloadedSize,
+            };
+            if (task.target == TaskDefTarget.AWS_LAMBDA) taskOutcome._teamId = task._teamId;
+            taskOutcome = await this.RestAPICall(`taskOutcome/${task._taskOutcomeId}`, 'PUT', {
+                data: taskOutcome,
+                retryWithBackoff: true,
+            });
 
-                let newScript = await SGUtils.injectScripts(
-                    this._teamId,
-                    SGUtils.atob(step.script.code),
-                    task.scriptsToInject,
-                    this.LogError
-                );
-                step.script.code = SGUtils.btoa_(newScript);
-
-                newScript = SGUtils.atob(step.script.code);
-                const arrInjectVarsScript: string[] = newScript.match(/@sgg?(\([^)]*\))/gi);
-                if (arrInjectVarsScript) {
-                    // replace runtime variables in script
-                    for (let i = 0; i < arrInjectVarsScript.length; i++) {
-                        let found = false;
-                        try {
-                            let injectVarKey = arrInjectVarsScript[i].substr(5, arrInjectVarsScript[i].length - 6);
-                            if (
-                                injectVarKey.substr(0, 1) === '"' &&
-                                injectVarKey.substr(injectVarKey.length - 1, 1) === '"'
-                            )
-                                injectVarKey = injectVarKey.slice(1, -1);
-                            if (injectVarKey in task.runtimeVars) {
-                                const injectVarVal = task.runtimeVars[injectVarKey].value;
-                                newScript = newScript.replace(`${arrInjectVarsScript[i]}`, `${injectVarVal}`);
-                                found = true;
+            // console.log('taskOutcome -> POST -> ', util.inspect(taskOutcome, false, null));
+            if (taskOutcome.status == TaskStatus.RUNNING) {
+                let lastStepOutcome = undefined;
+                for (const step of stepsAsc) {
+                    if (step.variables) {
+                        const newEnv: any = _.clone(step.variables);
+                        for (let e = 0; e < Object.keys(newEnv).length; e++) {
+                            const eKey = Object.keys(newEnv)[e];
+                            if (eKey in task.runtimeVars) {
+                                newEnv[eKey] = task.runtimeVars[eKey]['value'];
                             }
-
-                            if (!found) {
-                                newScript = newScript.replace(`${arrInjectVarsScript[i]}`, 'null');
-                            }
-                        } catch (e) {
-                            this.LogError(`Error replacing script @sgg capture `, e.stack, {
-                                task,
-                                capture: arrInjectVarsScript[i],
-                                error: e.toString(),
-                            });
                         }
+                        step.variables = newEnv;
                     }
+
+                    let newScript = await SGUtils.injectScripts(
+                        this._teamId,
+                        SGUtils.atob(step.script.code),
+                        task.scriptsToInject,
+                        this.LogError
+                    );
                     step.script.code = SGUtils.btoa_(newScript);
-                }
 
-                let newArgs: string = step.arguments;
-                const arrInjectVarsArgs: string[] = newArgs.match(/@sgg?(\([^)]*\))/gi);
-                if (arrInjectVarsArgs) {
-                    // replace runtime variables in arguments
-                    for (let i = 0; i < arrInjectVarsArgs.length; i++) {
-                        let found = false;
-                        try {
-                            let injectVarKey = arrInjectVarsArgs[i].substr(5, arrInjectVarsArgs[i].length - 6);
-                            if (
-                                injectVarKey.substr(0, 1) === '"' &&
-                                injectVarKey.substr(injectVarKey.length - 1, 1) === '"'
-                            )
-                                injectVarKey = injectVarKey.slice(1, -1);
-                            if (injectVarKey in task.runtimeVars) {
-                                const injectVarVal = task.runtimeVars[injectVarKey].value;
-                                if (injectVarVal) {
-                                    newArgs = newArgs.replace(`${arrInjectVarsArgs[i]}`, `${injectVarVal}`);
+                    newScript = SGUtils.atob(step.script.code);
+                    const arrInjectVarsScript: string[] = newScript.match(/@sgg?(\([^)]*\))/gi);
+                    if (arrInjectVarsScript) {
+                        // replace runtime variables in script
+                        for (let i = 0; i < arrInjectVarsScript.length; i++) {
+                            let found = false;
+                            try {
+                                let injectVarKey = arrInjectVarsScript[i].substr(5, arrInjectVarsScript[i].length - 6);
+                                if (
+                                    injectVarKey.substr(0, 1) === '"' &&
+                                    injectVarKey.substr(injectVarKey.length - 1, 1) === '"'
+                                )
+                                    injectVarKey = injectVarKey.slice(1, -1);
+                                if (injectVarKey in task.runtimeVars) {
+                                    const injectVarVal = task.runtimeVars[injectVarKey].value;
+                                    newScript = newScript.replace(`${arrInjectVarsScript[i]}`, `${injectVarVal}`);
                                     found = true;
                                 }
-                            }
 
-                            if (!found) {
-                                newArgs = newArgs.replace(`${arrInjectVarsArgs[i]}`, 'null');
+                                if (!found) {
+                                    newScript = newScript.replace(`${arrInjectVarsScript[i]}`, 'null');
+                                }
+                            } catch (e) {
+                                this.LogError(`Error replacing script @sgg capture `, e.stack, {
+                                    task,
+                                    capture: arrInjectVarsScript[i],
+                                    error: e.toString(),
+                                });
                             }
-                        } catch (e) {
-                            this.LogError(`Error replacing arguments @sgg capture `, e.stack, {
-                                task,
-                                capture: arrInjectVarsScript[i],
-                                error: e.toString(),
-                            });
                         }
+                        step.script.code = SGUtils.btoa_(newScript);
                     }
-                    step.arguments = newArgs;
+
+                    let newArgs: string = step.arguments;
+                    const arrInjectVarsArgs: string[] = newArgs.match(/@sgg?(\([^)]*\))/gi);
+                    if (arrInjectVarsArgs) {
+                        // replace runtime variables in arguments
+                        for (let i = 0; i < arrInjectVarsArgs.length; i++) {
+                            let found = false;
+                            try {
+                                let injectVarKey = arrInjectVarsArgs[i].substr(5, arrInjectVarsArgs[i].length - 6);
+                                if (
+                                    injectVarKey.substr(0, 1) === '"' &&
+                                    injectVarKey.substr(injectVarKey.length - 1, 1) === '"'
+                                )
+                                    injectVarKey = injectVarKey.slice(1, -1);
+                                if (injectVarKey in task.runtimeVars) {
+                                    const injectVarVal = task.runtimeVars[injectVarKey].value;
+                                    if (injectVarVal) {
+                                        newArgs = newArgs.replace(`${arrInjectVarsArgs[i]}`, `${injectVarVal}`);
+                                        found = true;
+                                    }
+                                }
+
+                                if (!found) {
+                                    newArgs = newArgs.replace(`${arrInjectVarsArgs[i]}`, 'null');
+                                }
+                            } catch (e) {
+                                this.LogError(`Error replacing arguments @sgg capture `, e.stack, {
+                                    task,
+                                    capture: arrInjectVarsScript[i],
+                                    error: e.toString(),
+                                });
+                            }
+                        }
+                        step.arguments = newArgs;
+                    }
+
+                    let runCode: string = SGUtils.atob(step.script.code);
+                    runCode = this.ReplaceSensitiveRuntimeVarValuesInString(runCode, task.runtimeVars);
+                    runCode = SGUtils.btoa_(runCode);
+
+                    let stepOutcome: any = {
+                        _teamId: new mongodb.ObjectId(this._teamId),
+                        _jobId: task._jobId,
+                        _stepId: step.id,
+                        _taskOutcomeId: taskOutcome.id,
+                        lastUpdateId: 0,
+                        name: step.name,
+                        source: task.source,
+                        machineId: this.MachineId(),
+                        ipAddress: this.ipAddress,
+                        runCode: runCode,
+                        status: TaskStatus.RUNNING,
+                        dateStarted: new Date().toISOString(),
+                        agentTags: this.tags,
+                    };
+
+                    if (task.target == TaskDefTarget.AWS_LAMBDA) {
+                        stepOutcome._teamId = task._teamId;
+                        stepOutcome.ipAddress = '0.0.0.0';
+                        stepOutcome.machineId = 'lambda-executor';
+                    }
+
+                    stepOutcome = <StepOutcomeSchema>await this.RestAPICall(`stepOutcome`, 'POST', {
+                        data: stepOutcome,
+                        retryWithBackoff: true,
+                    });
+
+                    // console.log('Agent -> RunTask -> RunStepAsync -> step -> ', util.inspect(step, false, null));
+                    let res: any;
+                    if (task.target == TaskDefTarget.AWS_LAMBDA) {
+                        res = await this.RunStepAsync_Lambda(
+                            step,
+                            workingDirectory,
+                            task,
+                            stepOutcome.id,
+                            stepOutcome.lastUpdateId,
+                            taskOutcome.id
+                        );
+                    } else {
+                        res = await this.RunStepAsync(
+                            step,
+                            workingDirectory,
+                            task,
+                            stepOutcome.id,
+                            stepOutcome.lastUpdateId,
+                            taskOutcome.id
+                        );
+                    }
+                    lastStepOutcome = res;
+                    if (task.target == TaskDefTarget.AWS_LAMBDA) {
+                        res._teamId = task._teamId;
+                    }
+                    // console.log("Agent -> RunTask -> RunStepAsync -> res -> ", util.inspect(res, false, null));
+
+                    this.queueAPICall.push({
+                        url: `stepOutcome/${stepOutcome.id}`,
+                        method: 'PUT',
+                        headers: null,
+                        data: res,
+                    });
+
+                    Object.assign(task.runtimeVars, res.runtimeVars);
+                    Object.assign(taskOutcome.runtimeVars, res.runtimeVars);
+
+                    if (res.status === StepStatus.INTERRUPTED || res.status === StepStatus.FAILED) {
+                        allStepsCompleted = false;
+                        break;
+                    }
                 }
 
-                let runCode: string = SGUtils.atob(step.script.code);
-                runCode = this.ReplaceSensitiveRuntimeVarValuesInString(runCode, task.runtimeVars);
-                runCode = SGUtils.btoa_(runCode);
+                const dateCompleted = new Date().toISOString();
 
-                let stepOutcome: any = {
-                    _teamId: new mongodb.ObjectId(this._teamId),
-                    _jobId: task._jobId,
-                    _stepId: step.id,
-                    _taskOutcomeId: taskOutcome.id,
-                    lastUpdateId: 0,
-                    name: step.name,
-                    source: task.source,
-                    machineId: this.MachineId(),
-                    ipAddress: this.ipAddress,
-                    runCode: runCode,
-                    status: Enums.TaskStatus.RUNNING,
-                    dateStarted: new Date().toISOString(),
-                    agentTags: this.tags,
-                };
-
-                if (task.target == Enums.TaskDefTarget.AWS_LAMBDA) {
-                    stepOutcome._teamId = task._teamId;
-                    stepOutcome.ipAddress = '0.0.0.0';
-                    stepOutcome.machineId = 'lambda-executor';
-                }
-
-                stepOutcome = <StepOutcomeSchema>await this.RestAPICall(`stepOutcome`, 'POST', null, stepOutcome);
-
-                // console.log('Agent -> RunTask -> RunStepAsync -> step -> ', util.inspect(step, false, null));
-                let res: any;
-                if (task.target == Enums.TaskDefTarget.AWS_LAMBDA) {
-                    res = await this.RunStepAsync_Lambda(
-                        step,
-                        workingDirectory,
-                        task,
-                        stepOutcome.id,
-                        stepOutcome.lastUpdateId,
-                        taskOutcome.id
-                    );
+                if (allStepsCompleted) {
+                    taskOutcome.status = TaskStatus.SUCCEEDED;
                 } else {
-                    res = await this.RunStepAsync(
-                        step,
-                        workingDirectory,
-                        task,
-                        stepOutcome.id,
-                        stepOutcome.lastUpdateId,
-                        taskOutcome.id
-                    );
+                    if (lastStepOutcome) {
+                        taskOutcome.status = lastStepOutcome.status;
+                        if (lastStepOutcome.failureCode) taskOutcome.failureCode = lastStepOutcome.failureCode;
+                    } else {
+                        taskOutcome.status = TaskStatus.FAILED;
+                        taskOutcome.failureCode = TaskFailureCode.AGENT_EXEC_ERROR;
+                    }
                 }
-                lastStepOutcome = res;
-                if (task.target == Enums.TaskDefTarget.AWS_LAMBDA) {
-                    res._teamId = task._teamId;
-                }
-                // console.log("Agent -> RunTask -> RunStepAsync -> res -> ", util.inspect(res, false, null));
 
-                this.queueCompleteMessages.push({
-                    url: `stepOutcome/${stepOutcome.id}`,
+                const taskOutcomeUpdates: any = {};
+                taskOutcomeUpdates.status = taskOutcome.status;
+                if (taskOutcome.failureCode) taskOutcomeUpdates.failureCode = taskOutcome.failureCode;
+                taskOutcomeUpdates.dateCompleted = dateCompleted;
+                taskOutcomeUpdates.runtimeVars = taskOutcome.runtimeVars;
+
+                if (task.target == TaskDefTarget.AWS_LAMBDA) taskOutcomeUpdates._teamId = task._teamId;
+                // console.log(`???????????????????\n\ntaskOutcomeId -> ${taskOutcome.id}\n\ntaskOutcome -> ${JSON.stringify(taskOutcome)}\n\ntask -> ${JSON.stringify(task)}\n\ntaskOutcomeUpdates -> ${JSON.stringify(taskOutcomeUpdates)}`);
+                this.queueAPICall.push({
+                    url: `taskOutcome/${taskOutcome.id}`,
                     method: 'PUT',
                     headers: null,
-                    data: res,
+                    data: taskOutcomeUpdates,
                 });
+                // console.log('taskOutcome -> PUT -> ', util.inspect(taskOutcome, false, null));
 
-                Object.assign(task.runtimeVars, res.runtimeVars);
-                Object.assign(taskOutcome.runtimeVars, res.runtimeVars);
-
-                if (res.status === Enums.StepStatus.INTERRUPTED || res.status === Enums.StepStatus.FAILED) {
-                    allStepsCompleted = false;
-                    break;
-                }
+                delete runningProcesses[taskOutcome.id];
             }
-
-            const dateCompleted = new Date().toISOString();
-
-            if (allStepsCompleted) {
-                taskOutcome.status = Enums.TaskStatus.SUCCEEDED;
-            } else {
-                if (lastStepOutcome) {
-                    taskOutcome.status = lastStepOutcome.status;
-                    if (lastStepOutcome.failureCode) taskOutcome.failureCode = lastStepOutcome.failureCode;
-                } else {
-                    taskOutcome.status = Enums.TaskStatus.FAILED;
-                    taskOutcome.failureCode = TaskFailureCode.AGENT_EXEC_ERROR;
-                }
-            }
-
-            const taskOutcomeUpdates: any = {};
-            taskOutcomeUpdates.status = taskOutcome.status;
-            if (taskOutcome.failureCode) taskOutcomeUpdates.failureCode = taskOutcome.failureCode;
-            taskOutcomeUpdates.dateCompleted = dateCompleted;
-            taskOutcomeUpdates.runtimeVars = taskOutcome.runtimeVars;
-
-            if (task.target == Enums.TaskDefTarget.AWS_LAMBDA) taskOutcomeUpdates._teamId = task._teamId;
-            // console.log(`???????????????????\n\ntaskOutcomeId -> ${taskOutcome.id}\n\ntaskOutcome -> ${JSON.stringify(taskOutcome)}\n\ntask -> ${JSON.stringify(task)}\n\ntaskOutcomeUpdates -> ${JSON.stringify(taskOutcomeUpdates)}`);
-            this.queueCompleteMessages.push({
-                url: `taskOutcome/${taskOutcome.id}`,
-                method: 'PUT',
-                headers: null,
-                data: taskOutcomeUpdates,
-            });
-            // console.log('taskOutcome -> PUT -> ', util.inspect(taskOutcome, false, null));
-
-            delete runningProcesses[taskOutcome.id];
+        } finally {
+            this.RemoveFolder(workingDirectory, 0);
         }
-
-        this.RemoveFolder(workingDirectory, 0);
     };
 
     CompleteTaskGeneralErrorHandler = async (params: any) => {
+        // todo: get the taskoutcomeid from params
         try {
             const _teamId = params._teamId;
-
-            let taskOutcome: any = {
-                _teamId: _teamId,
-                _jobId: params._jobId,
-                _taskId: params.id,
-                _agentId: this.instanceId,
-                source: params.source,
-                sourceTaskRoute: params.sourceTaskRoute,
-                correlationId: params.correlationId,
-                dateStarted: new Date().toISOString(),
-                ipAddress: '',
-                machineId: '',
-                artifactsDownloadedSize: 0,
-                target: params.target,
-                runtimeVars: params.runtimeVars,
-                autoRestart: params.autoRestart,
-            };
-
-            taskOutcome = <TaskOutcomeSchema>await this.RestAPICall(`taskOutcome`, 'POST', null, taskOutcome);
+            const taskOutcomeId = params._taskOutcomeId;
 
             const taskOutcomeUpdates: any = { runtimeVars: { route: 'fail' } };
-            taskOutcomeUpdates.status = Enums.TaskStatus.FAILED;
+            taskOutcomeUpdates.status = TaskStatus.FAILED;
             taskOutcomeUpdates.failureCode = TaskFailureCode.AGENT_EXEC_ERROR;
             taskOutcomeUpdates.dateCompleted = new Date().toISOString();
-            this.queueCompleteMessages.push({
-                url: `taskOutcome/${taskOutcome.id}`,
+            this.queueAPICall.push({
+                url: `taskOutcome/${taskOutcomeId.id}`,
                 method: 'PUT',
                 headers: null,
                 data: taskOutcomeUpdates,
             });
 
-            delete runningProcesses[taskOutcome.id];
+            delete runningProcesses[taskOutcomeId.id];
         } catch (e) {
             this.LogError('Error in CompleteTaskGeneralErrorHandler', e.stack, {
                 error: e.toString(),
@@ -2293,9 +2378,14 @@ export default class Agent {
                 await this.RunTask(params);
             }
         } catch (e) {
-            this.LogError('Error in CompleteTask', e.stack, { error: e.toString() });
+            if (e.name && e.name == 'ArtifactDownloadError') {
+            } else {
+                this.LogError('Error in CompleteTask', e.stack, {
+                    error: e.toString(),
+                });
+            }
             // await this.CompleteTaskGeneralErrorHandler(params);
-            return cb(true, msgKey);
+            // return cb(true, msgKey);
         } finally {
             this.numActiveTasks -= 1;
         }
@@ -2304,7 +2394,7 @@ export default class Agent {
     Update = async (params: any, msgKey: string, cb: any) => {
         try {
             await cb(true, msgKey);
-            // await this.LogDebug('Update received', { msgKey, params });
+            // await this.LogDebug("Update received", { msgKey, params });
             if (this.updating) {
                 await this.LogWarning('Version update running - skipping this update', {});
                 return;
@@ -2372,10 +2462,15 @@ export default class Agent {
                 } else {
                     const runtimeVars: any = { route: { value: 'interrupt' } };
                     const taskOutcomeUpdate: any = {
-                        status: Enums.TaskStatus.INTERRUPTED,
+                        status: TaskStatus.INTERRUPTED,
                         runtimeVars: runtimeVars,
                     };
-                    await this.RestAPICall(`taskOutcome/${params.interruptTask.id}`, 'PUT', null, taskOutcomeUpdate);
+                    this.queueAPICall.push({
+                        url: `taskOutcome/${params.interruptTask.id}`,
+                        method: 'PUT',
+                        headers: null,
+                        data: taskOutcomeUpdate,
+                    });
                 }
             }
 
@@ -2390,7 +2485,7 @@ export default class Agent {
                     await SGUtils.sleep(5000);
                 }
                 for (let i = 0; i < 6; i++) {
-                    if (!this.queueCompleteMessages || this.queueCompleteMessages.length <= 0) break;
+                    if (!this.queueAPICall || this.queueAPICall.length <= 0) break;
                     await SGUtils.sleep(5000);
                 }
                 this.offline = true;
