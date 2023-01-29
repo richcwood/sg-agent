@@ -8,7 +8,8 @@
   "scripts": {
     "build": "tsc",
     "watch-build": "tsc -w",
-    "postinstall": "npm run build"
+    "postinstall": "npm run build",
+    "pretty": "prettier --write \"**/*.{ts,js}\""
   },
   "keywords": [],
   "author": "",
@@ -43,9 +44,17 @@
     "text-encoding": "0.7.0",
     "truncate-utf8-bytes": "1.0.2",
     "ts-loader": "4.0.0",
-    "typescript": "3.5.1",
     "util": "0.11.1",
     "websocket": "1.0.31",
     "zip-a-folder": "0.0.12"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^5.49.0",
+    "@typescript-eslint/parser": "^5.49.0",
+    "eslint": "^8.32.0",
+    "eslint-config-prettier": "^8.6.0",
+    "eslint-plugin-prettier": "^4.2.1",
+    "prettier": "^2.8.3",
+    "typescript": "^4.9.4"
   }
 }
