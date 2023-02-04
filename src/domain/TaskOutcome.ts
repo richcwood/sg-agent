@@ -33,5 +33,7 @@ export class TaskOutcomeSchema {
 
     artifactsDownloadedSize: number;
 
+    runtimeVars: any;
+
     autoRestart: boolean;
 }
