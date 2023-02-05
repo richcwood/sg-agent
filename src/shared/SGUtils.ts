@@ -10,6 +10,8 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { AgentLogger } from './SGAgentLogger';
+import { StepSchema } from '../domain/Step';
+import { TaskSchema } from '../domain/Task';
 
 AWS.config.apiVersions = {
     lambda: '2015-03-31',
@@ -51,9 +53,8 @@ export class SGUtils {
         return e;
     }
 
-    static async injectScripts(_teamId: string, script_code: string, scriptsToInject: any, fnLogError: any) {
-        let newScript: string = script_code;
-        const arrScriptsToInject: string[] = newScript.match(/@sgs?(\([^)]*\))/gi);
+    static InjectScripts(_teamId: string, script: string, scriptsToInject: any, fnLogError: any): string {
+        const arrScriptsToInject: string[] = script.match(/@sgs?(\([^)]*\))/gi);
         if (arrScriptsToInject) {
             // replace runtime variables in script
             for (let i = 0; i < arrScriptsToInject.length; i++) {
@@ -68,14 +69,14 @@ export class SGUtils {
                     if (injectScriptKey in scriptsToInject) {
                         const injectScriptVal = SGUtils.atob(scriptsToInject[injectScriptKey]);
                         if (injectScriptVal) {
-                            newScript = newScript.replace(`${arrScriptsToInject[i]}`, `${injectScriptVal}`);
-                            newScript = await SGUtils.injectScripts(_teamId, newScript, scriptsToInject, fnLogError);
+                            script = script.replace(`${arrScriptsToInject[i]}`, `${injectScriptVal}`);
+                            script = SGUtils.InjectScripts(_teamId, script, scriptsToInject, fnLogError);
                             found = true;
                         }
                     }
 
                     if (!found) {
-                        newScript = newScript.replace(`${arrScriptsToInject[i]}`, '');
+                        script = script.replace(`${arrScriptsToInject[i]}`, '');
                     }
                 } catch (e) {
                     fnLogError(`Error replacing script @sgs capture for string`, e.stack, {
@@ -86,7 +87,71 @@ export class SGUtils {
             }
         }
 
-        return newScript;
+        return script;
+    }
+
+    static InjectRuntimeVarsInScript(task: TaskSchema, script: string, errorLogger: any): string {
+        const arrInjectVarsScript: string[] = script.match(/@sgg?(\([^)]*\))/gi);
+        if (arrInjectVarsScript) {
+            // replace runtime variables in script
+            for (let i = 0; i < arrInjectVarsScript.length; i++) {
+                let found = false;
+                try {
+                    let injectVarKey = arrInjectVarsScript[i].substr(5, arrInjectVarsScript[i].length - 6);
+                    if (injectVarKey.substr(0, 1) === '"' && injectVarKey.substr(injectVarKey.length - 1, 1) === '"')
+                        injectVarKey = injectVarKey.slice(1, -1);
+                    if (injectVarKey in task.runtimeVars) {
+                        const injectVarVal = task.runtimeVars[injectVarKey].value;
+                        script = script.replace(`${arrInjectVarsScript[i]}`, `${injectVarVal}`);
+                        found = true;
+                    }
+
+                    if (!found) {
+                        script = script.replace(`${arrInjectVarsScript[i]}`, 'null');
+                    }
+                } catch (e) {
+                    errorLogger(`Error replacing script @sgg capture `, e.stack, {
+                        task,
+                        capture: arrInjectVarsScript[i],
+                        error: e.toString(),
+                    });
+                }
+            }
+        }
+        return script;
+    }
+
+    static InjectRuntimeVarsInArg(task: TaskSchema, args: string, errorLogger: any): string {
+        const arrInjectVarsArgs: string[] = args.match(/@sgg?(\([^)]*\))/gi);
+        if (arrInjectVarsArgs) {
+            // replace runtime variables in arguments
+            for (let i = 0; i < arrInjectVarsArgs.length; i++) {
+                let found = false;
+                try {
+                    let injectVarKey = arrInjectVarsArgs[i].substr(5, arrInjectVarsArgs[i].length - 6);
+                    if (injectVarKey.substr(0, 1) === '"' && injectVarKey.substr(injectVarKey.length - 1, 1) === '"')
+                        injectVarKey = injectVarKey.slice(1, -1);
+                    if (injectVarKey in task.runtimeVars) {
+                        const injectVarVal = task.runtimeVars[injectVarKey].value;
+                        if (injectVarVal) {
+                            args = args.replace(`${arrInjectVarsArgs[i]}`, `${injectVarVal}`);
+                            found = true;
+                        }
+                    }
+
+                    if (!found) {
+                        args = args.replace(`${arrInjectVarsArgs[i]}`, 'null');
+                    }
+                } catch (e) {
+                    errorLogger(`Error replacing arguments @sgg capture `, e.stack, {
+                        task,
+                        capture: arrInjectVarsArgs[i],
+                        error: e.toString(),
+                    });
+                }
+            }
+        }
+        return args;
     }
 
     static getConfigFilePath() {
@@ -131,41 +196,25 @@ export class SGUtils {
         return arrIPAddresses.toString();
     }
 
-    static async RunCommand(commandString: any, options: any) {
+    static RunCommand(commandString: any, options: any): Promise<any> {
         return new Promise((resolve, reject) => {
-            try {
-                let stdout = '';
-                let stderr = '';
+            let stdout = '';
+            let stderr = '';
 
-                const cmd: any = exec(commandString, options);
+            const cmd: any = exec(commandString, options);
 
-                cmd.stdout.on('data', (data) => {
-                    try {
-                        const str = data.toString();
-                        stdout += str;
-                    } catch (e) {
-                        throw e;
-                    }
-                });
+            cmd.stdout.on('data', (data) => {
+                const str = data.toString();
+                stdout += str;
+            });
 
-                cmd.stderr.on('data', (data) => {
-                    try {
-                        stderr += data.toString();
-                    } catch (e) {
-                        throw e;
-                    }
-                });
+            cmd.stderr.on('data', (data) => {
+                stderr += data.toString();
+            });
 
-                cmd.on('exit', (code) => {
-                    try {
-                        resolve({ code: code, stdout: stdout, stderr: stderr });
-                    } catch (e) {
-                        throw e;
-                    }
-                });
-            } catch (e) {
-                throw e;
-            }
+            cmd.on('exit', (code) => {
+                resolve({ code: code, stdout: stdout, stderr: stderr });
+            });
         });
     }
 
@@ -228,107 +277,105 @@ export class SGUtils {
 
     static GetCloudWatchLogsEvents = async (
         lambdaFnName: string,
-        runParams: any,
+        stateVars: any,
         logger: AgentLogger,
         fnOnLogEvents: any
-    ) => {
-        return new Promise(async (resolve, reject) => {
-            const cwl = new AWS.CloudWatchLogs();
+    ): Promise<string> => {
+        const cwl = new AWS.CloudWatchLogs();
 
-            const logGroupName = `/aws/lambda/${lambdaFnName}`;
+        const logGroupName = `/aws/lambda/${lambdaFnName}`;
 
-            const describeLogParams: any = {
-                logGroupName,
-                descending: true,
-                orderBy: 'LastEventTime',
-            };
+        const describeLogParams: any = {
+            logGroupName,
+            descending: true,
+            orderBy: 'LastEventTime',
+        };
 
-            const maxTries = 10;
-            let numTries = 0;
-            let logStreamName = '';
-            while (numTries < maxTries && !runParams.runLambdaFinished) {
-                logStreamName = await new Promise((resolve, reject) => {
-                    cwl.describeLogStreams(describeLogParams, function (err, data) {
-                        if (err) {
-                            if (err.message != 'The specified log group does not exist.')
-                                logger.LogError('Error in GetCloudWatchLogsEvents.describeLogStreams', err.stack, {
-                                    error: err.toString(),
-                                });
-                            return resolve('');
-                        }
-
-                        // console.log('******** GetCloudWatchLogsEvents -> data -> ', data);
-
-                        if (data && 'logStreams' in data && data.logStreams.length > 0) {
-                            resolve(data.logStreams[0].logStreamName);
-                        } else {
-                            resolve('');
-                        }
-                    });
-                });
-
-                if (logStreamName != '') break;
-
-                if (runParams.runLambdaFinished) break;
-
-                numTries += 1;
-                // console.log('******** GetCloudWatchLogsEvents -> sleeping');
-                await SGUtils.sleep(6000);
-                // console.log('******** GetCloudWatchLogsEvents -> trying again -> numTries -> ', numTries, ', runParams.runLambdaFinished -> ', runParams.runLambdaFinished);
-            }
-
-            if (logStreamName == '') return resolve('Timeout retrieving logs');
-
-            // console.log('******** GetCloudWatchLogsEvents -> logStreamName -> ', logStreamName);
-
-            const nextToken = undefined;
-            const getLogEventsParams: any = {
-                logGroupName,
-                logStreamName,
-                startFromHead: true,
-                limit: 10,
-                nextToken,
-            };
-
-            while (true) {
-                const res: any = await new Promise<null | any>((resolve, reject) => {
-                    cwl.getLogEvents(getLogEventsParams, async function (err, data) {
-                        if (err) {
-                            logger.LogError('Error in GetCloudWatchLogsEvents.getLogEvents', err.stack, {
+        const maxTries = 10;
+        let numTries = 0;
+        let logStreamName = '';
+        while (numTries < maxTries && !stateVars.runLambdaFinished) {
+            logStreamName = await new Promise((resolve, reject) => {
+                cwl.describeLogStreams(describeLogParams, function (err, data) {
+                    if (err) {
+                        if (err.message != 'The specified log group does not exist.')
+                            logger.LogError('Error in GetCloudWatchLogsEvents.describeLogStreams', err.stack, {
                                 error: err.toString(),
                             });
-                            if (err.message == 'Rate exceeded') await SGUtils.sleep(5000);
-                            return resolve(null);
-                        }
-                        if (data.events)
-                            return resolve({
-                                events: data.events,
-                                nextToken: data.nextForwardToken,
-                            });
-                        return resolve(null);
-                    });
-                });
-
-                if (res && res.events.length > 0) {
-                    fnOnLogEvents(res.events);
-                    let reachedLogEnd = false;
-                    for (let i = 0; i < res.events.length; i++) {
-                        if (res.events[i].message.startsWith('REPORT RequestId:')) {
-                            reachedLogEnd = true;
-                            break;
-                        }
+                        return resolve('');
                     }
 
-                    if (reachedLogEnd) break;
+                    // console.log('******** GetCloudWatchLogsEvents -> data -> ', data);
+
+                    if (data && 'logStreams' in data && data.logStreams.length > 0) {
+                        resolve(data.logStreams[0].logStreamName);
+                    } else {
+                        resolve('');
+                    }
+                });
+            });
+
+            if (logStreamName != '') break;
+
+            if (stateVars.runLambdaFinished) break;
+
+            numTries += 1;
+            // console.log('******** GetCloudWatchLogsEvents -> sleeping');
+            await SGUtils.sleep(6000);
+            // console.log('******** GetCloudWatchLogsEvents -> trying again -> numTries -> ', numTries, ', runParams.runLambdaFinished -> ', runParams.runLambdaFinished);
+        }
+
+        if (logStreamName == '') return 'Timeout retrieving logs';
+
+        // console.log('******** GetCloudWatchLogsEvents -> logStreamName -> ', logStreamName);
+
+        const nextToken = undefined;
+        const getLogEventsParams: any = {
+            logGroupName,
+            logStreamName,
+            startFromHead: true,
+            limit: 10,
+            nextToken,
+        };
+
+        while (true) {
+            const res: any = await new Promise<null | any>((resolve, reject) => {
+                cwl.getLogEvents(getLogEventsParams, async function (err, data) {
+                    if (err) {
+                        logger.LogError('Error in GetCloudWatchLogsEvents.getLogEvents', err.stack, {
+                            error: err.toString(),
+                        });
+                        if (err.message == 'Rate exceeded') await SGUtils.sleep(5000);
+                        return resolve(null);
+                    }
+                    if (data.events)
+                        return resolve({
+                            events: data.events,
+                            nextToken: data.nextForwardToken,
+                        });
+                    return resolve(null);
+                });
+            });
+
+            if (res && res.events.length > 0) {
+                fnOnLogEvents(res.events);
+                let reachedLogEnd = false;
+                for (let i = 0; i < res.events.length; i++) {
+                    if (res.events[i].message.startsWith('REPORT RequestId:')) {
+                        reachedLogEnd = true;
+                        break;
+                    }
                 }
 
-                if (res && res.nextToken) getLogEventsParams.nextToken = res.nextToken;
-
-                await SGUtils.sleep(1000);
+                if (reachedLogEnd) break;
             }
 
-            resolve('done');
-        });
+            if (res && res.nextToken) getLogEventsParams.nextToken = res.nextToken;
+
+            await SGUtils.sleep(1000);
+        }
+
+        return 'done';
     };
 
     static CreateAWSLambdaZipFile_NodeJS = async (
@@ -336,35 +383,31 @@ export class SGUtils {
         script: string,
         lambdaDependencies: string,
         lambdaFnName: string
-    ) => {
-        return new Promise(async (resolve, reject) => {
-            try {
-                const indexFilePath = workingDir + path.sep + 'index.js';
-                const runFilePath = workingDir + path.sep + lambdaFnName + '.js';
+    ): Promise<string> => {
+        const indexFilePath = workingDir + path.sep + 'index.js';
+        const runFilePath = workingDir + path.sep + lambdaFnName + '.js';
 
-                const lstLambdaDependencies = lambdaDependencies.split(';').filter((li) => li.trim());
-                if (lstLambdaDependencies.length > 0) {
-                    const res: any = await SGUtils.RunCommand(`npm init -y`, {
-                        cwd: workingDir,
-                    });
-                    if (res.code != 0)
-                        throw new Error(
-                            `Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`
-                        );
+        const lstLambdaDependencies = lambdaDependencies.split(';').filter((li) => li.trim());
+        if (lstLambdaDependencies.length > 0) {
+            const res: any = await SGUtils.RunCommand(`npm init -y`, {
+                cwd: workingDir,
+            });
+            if (res.code != 0)
+                throw new Error(`Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
 
-                    for (let i = 0; i < lstLambdaDependencies.length; i++) {
-                        const res: any = await SGUtils.RunCommand(`npm i --save ${lstLambdaDependencies[i]}`, {
-                            cwd: workingDir,
-                        });
-                        if (res.code != 0) {
-                            throw new Error(
-                                `Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`
-                            );
-                        }
-                    }
+            for (let i = 0; i < lstLambdaDependencies.length; i++) {
+                const res: any = await SGUtils.RunCommand(`npm i --save ${lstLambdaDependencies[i]}`, {
+                    cwd: workingDir,
+                });
+                if (res.code != 0) {
+                    throw new Error(
+                        `Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`
+                    );
                 }
+            }
+        }
 
-                const code = `
+        const code = `
 const child_process_1 = require("child_process");
 
 
@@ -403,16 +446,11 @@ exports.handler = async (event, context) => {
 };
                 `;
 
-                fs.writeFileSync(indexFilePath, code);
+        fs.writeFileSync(indexFilePath, code);
+        fs.writeFileSync(runFilePath, script);
+        const compressedFilePath: string = await SGUtils.ZipFolder(path.dirname(indexFilePath));
 
-                fs.writeFileSync(runFilePath, script);
-
-                const compressedFilePath: string = await SGUtils.ZipFolder(path.dirname(indexFilePath));
-                resolve(compressedFilePath);
-            } catch (e) {
-                reject(e);
-            }
-        });
+        return compressedFilePath;
     };
 
     static CreateAWSLambdaZipFile_Python = async (
@@ -420,27 +458,25 @@ exports.handler = async (event, context) => {
         script: string,
         lambdaDependencies: string,
         lambdaFnName: string
-    ) => {
-        return new Promise(async (resolve, reject) => {
-            try {
-                const indexFilePath = workingDir + path.sep + 'lambda_function.py';
-                const runFilePath = workingDir + path.sep + lambdaFnName + '.py';
+    ): Promise<string> => {
+        const indexFilePath = workingDir + path.sep + 'lambda_function.py';
+        const runFilePath = workingDir + path.sep + lambdaFnName + '.py';
 
-                const lstLambdaDependencies = lambdaDependencies.split(';').filter((li) => li.trim());
-                if (lstLambdaDependencies.length > 0) {
-                    for (let i = 0; i < lstLambdaDependencies.length; i++) {
-                        const res: any = await SGUtils.RunCommand(`pip install ${lstLambdaDependencies[i]} -t .`, {
-                            cwd: workingDir,
-                        });
-                        if (res.code != 0) {
-                            throw new Error(
-                                `Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`
-                            );
-                        }
-                    }
+        const lstLambdaDependencies = lambdaDependencies.split(';').filter((li) => li.trim());
+        if (lstLambdaDependencies.length > 0) {
+            for (let i = 0; i < lstLambdaDependencies.length; i++) {
+                const res: any = await SGUtils.RunCommand(`pip install ${lstLambdaDependencies[i]} -t .`, {
+                    cwd: workingDir,
+                });
+                if (res.code != 0) {
+                    throw new Error(
+                        `Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`
+                    );
                 }
+            }
+        }
 
-                const code = `
+        const code = `
 import json
 
 def lambda_handler(event, context):
@@ -449,16 +485,12 @@ def lambda_handler(event, context):
         'statusCode': 200
     }
 `;
-                fs.writeFileSync(indexFilePath, code);
+        fs.writeFileSync(indexFilePath, code);
 
-                fs.writeFileSync(runFilePath, script);
+        fs.writeFileSync(runFilePath, script);
 
-                const compressedFilePath: string = await SGUtils.ZipFolder(path.dirname(indexFilePath));
-                resolve(compressedFilePath);
-            } catch (e) {
-                reject(e);
-            }
-        });
+        const compressedFilePath: string = await SGUtils.ZipFolder(path.dirname(indexFilePath));
+        return compressedFilePath;
     };
 
     static CreateAWSLambdaZipFile_Ruby = async (
@@ -466,46 +498,37 @@ def lambda_handler(event, context):
         script: string,
         lambdaDependencies: string,
         lambdaFnName: string
-    ) => {
-        return new Promise(async (resolve, reject) => {
-            try {
-                const indexFilePath = workingDir + path.sep + 'lambda_function.rb';
-                const runFilePath = workingDir + path.sep + lambdaFnName + '.rb';
+    ): Promise<string> => {
+        const indexFilePath = workingDir + path.sep + 'lambda_function.rb';
+        const runFilePath = workingDir + path.sep + lambdaFnName + '.rb';
 
-                const lstLambdaDependencies = lambdaDependencies.split(';').filter((li) => li.trim());
-                if (lstLambdaDependencies.length > 0) {
-                    let res: any = await SGUtils.RunCommand(`bundle init`, {
-                        cwd: workingDir,
-                    });
-                    if (res.code != 0)
-                        throw new Error(
-                            `Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`
-                        );
+        const lstLambdaDependencies = lambdaDependencies.split(';').filter((li) => li.trim());
+        if (lstLambdaDependencies.length > 0) {
+            let res: any = await SGUtils.RunCommand(`bundle init`, {
+                cwd: workingDir,
+            });
+            if (res.code != 0)
+                throw new Error(`Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
 
-                    for (let i = 0; i < lstLambdaDependencies.length; i++) {
-                        const res: any = await SGUtils.RunCommand(
-                            `bundle add ${lstLambdaDependencies[i]} --skip-install`,
-                            {
-                                cwd: workingDir,
-                            }
-                        );
-                        if (res.code != 0) {
-                            throw new Error(
-                                `Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`
-                            );
-                        }
-                    }
-
-                    res = await SGUtils.RunCommand(`bundle install --path ./`, {
-                        cwd: workingDir,
-                    });
-                    if (res.code != 0)
-                        throw new Error(
-                            `Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`
-                        );
+            for (let i = 0; i < lstLambdaDependencies.length; i++) {
+                const res: any = await SGUtils.RunCommand(`bundle add ${lstLambdaDependencies[i]} --skip-install`, {
+                    cwd: workingDir,
+                });
+                if (res.code != 0) {
+                    throw new Error(
+                        `Error installing dependency "${lstLambdaDependencies[i]}": [stderr = ${res.stderr}, stdout = ${res.stdout}]`
+                    );
                 }
+            }
 
-                const code = `
+            res = await SGUtils.RunCommand(`bundle install --path ./`, {
+                cwd: workingDir,
+            });
+            if (res.code != 0)
+                throw new Error(`Error installing dependencies: [stderr = ${res.stderr}, stdout = ${res.stdout}]`);
+        }
+
+        const code = `
 def lambda_handler(event:, context:)
 
     success = system("ruby", "${lambdaFnName}.rb")
@@ -513,35 +536,27 @@ def lambda_handler(event:, context:)
 { statusCode: 200 }
 end
 `;
-                fs.writeFileSync(indexFilePath, code);
+        fs.writeFileSync(indexFilePath, code);
+        fs.writeFileSync(runFilePath, script);
+        const compressedFilePath: string = await SGUtils.ZipFolder(path.dirname(indexFilePath));
 
-                fs.writeFileSync(runFilePath, script);
-
-                const compressedFilePath: string = await SGUtils.ZipFolder(path.dirname(indexFilePath));
-                resolve(compressedFilePath);
-            } catch (e) {
-                reject(e);
-            }
-        });
+        return compressedFilePath;
     };
 
     static DeleteCloudWatchLogsEvents = async (lambdaFnName: string) => {
-        return new Promise(async (resolve, reject) => {
-            const cwl = new AWS.CloudWatchLogs();
+        const cwl = new AWS.CloudWatchLogs();
 
-            const logGroupName = `/aws/lambda/${lambdaFnName}`;
+        const logGroupName = `/aws/lambda/${lambdaFnName}`;
 
-            const deleteLogParams: any = {
-                logGroupName,
-            };
+        const deleteLogParams: any = {
+            logGroupName,
+        };
 
-            cwl.deleteLogGroup(deleteLogParams, function (err, data) {
-                // if (err) {
-                //     if (err.message != 'The specified log group does not exist.')
-                //         reject(err);
-                // }
-                resolve('');
-            });
+        cwl.deleteLogGroup(deleteLogParams, function (err, data) {
+            // if (err) {
+            //     if (err.message != 'The specified log group does not exist.')
+            //         reject(err);
+            // }
         });
     };
 
@@ -558,64 +573,80 @@ end
         timeout: number,
         awsRegion: string,
         handler: string
-    ) => {
-        return new Promise(async (resolve, reject) => {
-            const params: any = {
-                Description: `Lambda function ${lambdaFnName}`,
-                FunctionName: lambdaFnName,
-                Handler: handler,
-                MemorySize: memorySize,
-                Publish: true,
-                Role: lambdaRole,
-                Runtime: runtime,
-                Tags: {
-                    TeamId: teamId,
-                    JobId: jobId,
+    ): Promise<any> => {
+        const params: any = {
+            Description: `Lambda function ${lambdaFnName}`,
+            FunctionName: lambdaFnName,
+            Handler: handler,
+            MemorySize: memorySize,
+            Publish: true,
+            Role: lambdaRole,
+            Runtime: runtime,
+            Tags: {
+                TeamId: teamId,
+                JobId: jobId,
+            },
+            Environment: {
+                Variables: {
+                    teamId: teamId,
+                    jobId: jobId,
+                    taskId: taskId,
+                    stepId: stepId,
                 },
-                Environment: {
-                    Variables: {
-                        teamId: teamId,
-                        jobId: jobId,
-                        taskId: taskId,
-                        stepId: stepId,
-                    },
-                },
-                Timeout: timeout,
-                Code: code,
-            };
+            },
+            Timeout: timeout,
+            Code: code,
+        };
 
-            AWS.config.region = awsRegion;
+        AWS.config.region = awsRegion;
 
-            const lambda = new AWS.Lambda({ maxRetries: 10 });
-            lambda.createFunction(params, async function (err, data) {
-                if (err) {
-                    reject(err);
-                }
-                const maxTries = 10;
-                let tryCount = 0;
-                while (true) {
-                    tryCount += 1;
-                    const lambdaFn = await new Promise(async (resolve, reject) => {
+        const lambda = new AWS.Lambda({ maxRetries: 10 });
+        console.log('create lambda - params ---------------> ', params);
+        lambda.createFunction(params, async function (err, data) {
+            if (err) {
+                console.log('create lambda - err ---------------> ', err);
+                throw err;
+            }
+            const maxTries = 10;
+            let tryCount = 0;
+            while (true) {
+                tryCount += 1;
+                try {
+                    const lambdaFn = await new Promise((resolve, reject) => {
                         lambda.getFunction({ FunctionName: lambdaFnName }, function (e, d) {
-                            if (e) reject(e);
+                            if (e) {
+                                console.log('create lambda - getfunction - e -----------> ', e);
+                                // reject(e);
+                            }
                             resolve(d);
                         });
                     });
-                    if (lambdaFn['Configuration']['State'] == 'Active') {
+                    if (
+                        lambdaFn &&
+                        lambdaFn['Configuration'] &&
+                        lambdaFn['Configuration']['State'] &&
+                        lambdaFn['Configuration']['State'] == 'Active'
+                    )
                         break;
-                    } else if (tryCount < maxTries) {
+                } catch (e) {
+                    console.log('create lambda - catch - e -----------> ', e);
+                    console.log('create lambda - tryCount -----------> ', tryCount);
+                    console.log('create lambda - maxTries -----------> ', maxTries);
+                    if (tryCount < maxTries) {
+                        console.log('create lambda -----------> sleeping');
                         await SGUtils.sleep(5000);
+                        console.log('create lambda -----------> done sleeping');
                     } else {
-                        reject('Timeout waiting for lambda function to be active');
-                        break;
+                        throw new Error('Timeout waiting for lambda function to be active');
                     }
                 }
-                resolve(data);
-            });
+            }
+            return data;
         });
     };
 
     static RunAWSLambda = async (lambdaFnName: string, awsRegion: string, payload: any, cb: any) => {
+        console.log('running lambda function ------------> ');
         const params = {
             FunctionName: lambdaFnName,
             Payload: JSON.stringify(payload),
@@ -627,22 +658,20 @@ end
         lambda.invoke(params, cb);
     };
 
-    static DeleteAWSLambda = async (lambdaFnName: string, awsRegion: string) => {
-        return new Promise(async (resolve, reject) => {
-            const params: any = {
-                FunctionName: lambdaFnName,
-            };
+    static DeleteAWSLambda = async (lambdaFnName: string, awsRegion: string): Promise<any> => {
+        const params: any = {
+            FunctionName: lambdaFnName,
+        };
 
-            AWS.config.region = awsRegion;
+        AWS.config.region = awsRegion;
 
-            const lambda = new AWS.Lambda();
-            lambda.deleteFunction(params, function (err, data) {
-                // if (err) {
-                //     if (err.message != 'The specified log group does not exist.')
-                //         reject(err);
-                // }
-                resolve(data);
-            });
+        const lambda = new AWS.Lambda();
+        lambda.deleteFunction(params, function (err, data) {
+            // if (err) {
+            //     if (err.message != 'The specified log group does not exist.')
+            //         reject(err);
+            // }
+            return data;
         });
     };
 
