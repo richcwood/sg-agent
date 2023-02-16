@@ -305,8 +305,6 @@ export class SGUtils {
                         return resolve('');
                     }
 
-                    // console.log('******** GetCloudWatchLogsEvents -> data -> ', data);
-
                     if (data && 'logStreams' in data && data.logStreams.length > 0) {
                         resolve(data.logStreams[0].logStreamName);
                     } else {
@@ -320,14 +318,10 @@ export class SGUtils {
             if (stateVars.runLambdaFinished) break;
 
             numTries += 1;
-            // console.log('******** GetCloudWatchLogsEvents -> sleeping');
             await SGUtils.sleep(6000);
-            // console.log('******** GetCloudWatchLogsEvents -> trying again -> numTries -> ', numTries, ', runParams.runLambdaFinished -> ', runParams.runLambdaFinished);
         }
 
         if (logStreamName == '') return 'Timeout retrieving logs';
-
-        // console.log('******** GetCloudWatchLogsEvents -> logStreamName -> ', logStreamName);
 
         const nextToken = undefined;
         const getLogEventsParams: any = {
@@ -346,14 +340,15 @@ export class SGUtils {
                             error: err.toString(),
                         });
                         if (err.message == 'Rate exceeded') await SGUtils.sleep(5000);
-                        return resolve(null);
+                        resolve(null);
                     }
-                    if (data.events)
-                        return resolve({
+                    if (data.events) {
+                        resolve({
                             events: data.events,
                             nextToken: data.nextForwardToken,
                         });
-                    return resolve(null);
+                    }
+                    resolve(null);
                 });
             });
 
@@ -601,52 +596,45 @@ end
         AWS.config.region = awsRegion;
 
         const lambda = new AWS.Lambda({ maxRetries: 10 });
-        console.log('create lambda - params ---------------> ', params);
-        lambda.createFunction(params, async function (err, data) {
-            if (err) {
-                console.log('create lambda - err ---------------> ', err);
-                throw err;
-            }
-            const maxTries = 10;
-            let tryCount = 0;
-            while (true) {
-                tryCount += 1;
-                try {
-                    const lambdaFn = await new Promise((resolve, reject) => {
-                        lambda.getFunction({ FunctionName: lambdaFnName }, function (e, d) {
-                            if (e) {
-                                console.log('create lambda - getfunction - e -----------> ', e);
-                                // reject(e);
-                            }
-                            resolve(d);
+        return new Promise((resolve, reject) => {
+            lambda.createFunction(params, async function (err, data) {
+                if (err) {
+                    return reject(err);
+                }
+                const maxTries = 10;
+                let tryCount = 0;
+                while (true) {
+                    tryCount += 1;
+                    try {
+                        const lambdaFn = await new Promise((resolve, reject) => {
+                            lambda.getFunction({ FunctionName: lambdaFnName }, function (e, d) {
+                                if (e) {
+                                    return reject(e);
+                                }
+                                return resolve(d);
+                            });
                         });
-                    });
-                    if (
-                        lambdaFn &&
-                        lambdaFn['Configuration'] &&
-                        lambdaFn['Configuration']['State'] &&
-                        lambdaFn['Configuration']['State'] == 'Active'
-                    )
-                        break;
-                } catch (e) {
-                    console.log('create lambda - catch - e -----------> ', e);
-                    console.log('create lambda - tryCount -----------> ', tryCount);
-                    console.log('create lambda - maxTries -----------> ', maxTries);
-                    if (tryCount < maxTries) {
-                        console.log('create lambda -----------> sleeping');
-                        await SGUtils.sleep(5000);
-                        console.log('create lambda -----------> done sleeping');
-                    } else {
-                        throw new Error('Timeout waiting for lambda function to be active');
+                        if (
+                            lambdaFn &&
+                            lambdaFn['Configuration'] &&
+                            lambdaFn['Configuration']['State'] &&
+                            lambdaFn['Configuration']['State'] == 'Active'
+                        )
+                            break;
+                    } catch (e) {
+                        if (tryCount < maxTries) {
+                            await SGUtils.sleep(5000);
+                        } else {
+                            throw new Error('Timeout waiting for lambda function to be active');
+                        }
                     }
                 }
-            }
-            return data;
+                return resolve(data);
+            });
         });
     };
 
     static RunAWSLambda = async (lambdaFnName: string, awsRegion: string, payload: any, cb: any) => {
-        console.log('running lambda function ------------> ');
         const params = {
             FunctionName: lambdaFnName,
             Payload: JSON.stringify(payload),

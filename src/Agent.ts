@@ -36,9 +36,6 @@ import { AgentLogger } from './shared/SGAgentLogger';
 import { SGStrings } from './shared/SGStrings';
 import { SGUtils } from './shared/SGUtils';
 import { StompConnector } from './shared/StompLib';
-import { MaxPercentageOfInputDatasetLabeled } from 'aws-sdk/clients/sagemaker';
-import { resolve } from 'dns';
-import { fn } from 'moment';
 
 interface RunStepOutcome {
     status: StepStatus;
@@ -643,18 +640,18 @@ export default class Agent {
                 );
 
                 // this.logger.LogDebug(`RestAPICall`, {fullurl, method, combinedHeaders, data, token: this.token});
-                console.log(
-                    'Agent RestAPICall -> url ',
-                    fullurl,
-                    ', method -> ',
-                    method,
-                    ', headers -> ',
-                    JSON.stringify(combinedHeaders, null, 4),
-                    ', data -> ',
-                    JSON.stringify(mergedOptions.data, null, 4),
-                    ', token -> ',
-                    this.token
-                );
+                // console.log(
+                //     'Agent RestAPICall -> url ',
+                //     fullurl,
+                //     ', method -> ',
+                //     method,
+                //     ', headers -> ',
+                //     JSON.stringify(combinedHeaders, null, 4),
+                //     ', data -> ',
+                //     JSON.stringify(mergedOptions.data, null, 4),
+                //     ', token -> ',
+                //     this.token
+                // );
 
                 const response = await axios({
                     url: fullurl,
@@ -1560,7 +1557,6 @@ export default class Agent {
                 `aws s3 cp ${stateVars.zipFilePath} s3://${step.s3Bucket}/${s3Path}`,
                 {}
             );
-            console.log('lambdazipfile upload res -----------------> ', res);
             if (res.stderr != '' || res.code != 0) {
                 this.LogError(`Error loading lambda function to S3`, '', {
                     stderr: res.stderr,
@@ -1597,8 +1593,8 @@ export default class Agent {
                 stdoutAnalysisFinished: false,
                 stdoutBytesProcessed: 0,
                 stdoutTruncated: false,
-                runLambdaFinished: false,
                 zipFilePath: '',
+                runLambdaFinished: false,
             };
             const lastNLines: string[] = [];
             const rtvCumulative: any = {};
@@ -1606,7 +1602,6 @@ export default class Agent {
             const _teamId: string = step._teamId;
             let handler = '';
             let lambdaCode: any = {};
-            let lambdaFileLoadedToSGAWS = false;
             let lambdaDuration: string = undefined;
             let lambdaBilledDuration: string = undefined;
             let lambdaMemSize: string = undefined;
@@ -1634,7 +1629,7 @@ export default class Agent {
                 );
                 lambdaCode = createAWSLambdaZipFileResult.lambdaCode;
                 handler = createAWSLambdaZipFileResult.handler;
-                lambdaFileLoadedToSGAWS = createAWSLambdaZipFileResult.lambdaFileLoadedToSGAWS;
+                createAWSLambdaZipFileResult.lambdaFileLoadedToSGAWS;
             } else {
                 const artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, 'GET', {
                     data: { _teamId },
@@ -1655,9 +1650,7 @@ export default class Agent {
                 handler = step.lambdaFunctionHandler;
             }
 
-            console.log('lambdaCode ------------> ', lambdaCode);
-
-            const createAWSLambdaRes = await SGUtils.CreateAWSLambda(
+            await SGUtils.CreateAWSLambda(
                 task._teamId,
                 task._jobId,
                 task.id,
@@ -1671,8 +1664,6 @@ export default class Agent {
                 step.lambdaAWSRegion,
                 handler
             );
-
-            console.log('after CreateAWSLambda - createAWSLambdaRes ------------> ', createAWSLambdaRes);
 
             if (stateVars.zipFilePath) {
                 try {
@@ -1699,17 +1690,15 @@ export default class Agent {
             runningProcesses[taskOutcomeId] = 'no requestId yet';
             let runLambdaError: any;
             let runLambdaResult: any;
-            console.log('running awslambda ---------->');
-            // SGUtils.RunAWSLambda(task.id, step.lambdaAWSRegion, payload, (err, data) => {
-            //     if (err) {
-            //         console.log('runstepasync_lambda ----------> err ', err);
-            //         runLambdaError = err;
-            //         stateVars.runLambdaFinished = true;
-            //     }
-            //     if (data) {
-            //         runLambdaResult = data;
-            //     }
-            // });
+            SGUtils.RunAWSLambda(task.id, step.lambdaAWSRegion, payload, (err, data) => {
+                if (err) {
+                    runLambdaError = err;
+                    stateVars.runLambdaFinished = true;
+                }
+                if (data) {
+                    runLambdaResult = data;
+                }
+            });
 
             this.ProcessTailQueue(
                 queueTail,
@@ -1730,27 +1719,20 @@ export default class Agent {
                 }
             );
 
-            await SGUtils.GetCloudWatchLogsEvents(task.id, stateVars, this.logger, (msgs) => {
-                for (let i = 0; i < msgs.length; i++) {
-                    if (msgs[i].message.startsWith('START')) {
-                        const requestId = msgs[i].message.split(' ')[2];
+            await SGUtils.GetCloudWatchLogsEvents(task.id, stateVars, this.logger, (messages) => {
+                for (let i = 0; i < messages.length; i++) {
+                    const message = messages[i].message;
+                    if (message.startsWith('START')) {
+                        const requestId = message.split(' ')[2];
                         runningProcesses[taskOutcomeId] = `lambda ${requestId}`;
-                    } else {
-                        const msg = msgs[i].message.split('\t');
-                        if (msg.length > 2) {
-                            if (msg[2] == 'ERROR') {
-                                error = msg;
-                                if (msg.length > 4) {
-                                    const jmsg = JSON.parse(msg[4]);
-                                    if ('stack' in jmsg) error += jmsg.stack + '\n';
-                                }
-                            }
-                        }
+                    } else if (message.indexOf('[ERROR] ') >= 0) {
+                        error = message;
+                        console.log(error);
                     }
-                    queueTail.push(msgs[i].message);
+                    queueTail.push(message);
                 }
 
-                fs.writeSync(fileOut, msgs.map((m) => m.message).join('\n'));
+                fs.writeSync(fileOut, messages.map((m) => m.message).join('\n'));
             });
 
             fs.closeSync(fileOut);
@@ -1786,8 +1768,6 @@ export default class Agent {
                 workingDirectory
             );
 
-            console.log('RunStepAsync_Lambda - outParams - 1 -------------> ', outParams);
-
             outParams = {
                 ...outParams,
                 ...{
@@ -1798,8 +1778,6 @@ export default class Agent {
                     lambdaInitDuration: lambdaInitDuration,
                 },
             };
-
-            console.log('RunStepAsync_Lambda - outParams - 2 -------------> ', outParams);
 
             if (error == '') {
                 outParams[SGStrings.status] = StepStatus.SUCCEEDED;
@@ -1819,7 +1797,6 @@ export default class Agent {
 
             return outParams;
         } catch (e) {
-            console.log('runstepasync_lambda error ------------------------> ', e);
             const errMsg: string = e.message || e.toString();
             this.LogError('Error in RunStepAsync_Lambda', e.stack, SGUtils.errorToObj(e));
             await SGUtils.sleep(1000);
@@ -2253,7 +2230,7 @@ export default class Agent {
             await SGUtils.sleep(100);
             while (!stateVars.stdoutAnalysisFinished) await SGUtils.sleep(100);
 
-            const outParams: any = this.PostRunScriptProcessing(
+            const outParams: any = await this.PostRunScriptProcessing(
                 step,
                 task,
                 stdoutFilePath,
@@ -2425,7 +2402,7 @@ export default class Agent {
 
     RunTask = async (task: TaskSchema) => {
         // this.LogDebug('Running task', { 'id': task.id });
-        console.log('Agent -> RunTask -> task -> ', util.inspect(task, false, null));
+        // console.log('Agent -> RunTask -> task -> ', util.inspect(task, false, null));
         const dateStarted = new Date();
 
         const workingDirectory = process.cwd() + path.sep + SGUtils.makeid(10);
@@ -2493,7 +2470,7 @@ export default class Agent {
                 retryWithBackoff: true,
             });
 
-            console.log('taskOutcome -> POST -> ', util.inspect(taskOutcome, false, null));
+            // console.log('taskOutcome -> POST -> ', util.inspect(taskOutcome, false, null));
             if (taskOutcome.status == TaskStatus.RUNNING) {
                 const runTaskStepsResult: { runStepOutcome: RunStepOutcome | undefined; allStepsCompleted: boolean } =
                     await this.RunTaskSteps(stepsAsc, task, workingDirectory, taskOutcome);
