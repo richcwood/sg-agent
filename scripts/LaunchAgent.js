@@ -38,6 +38,6 @@ process.on('unhandledRejection', (reason, p) => {
         let agentInstance = new Agent_1.default(params);
         await agentInstance.Init();
     } catch (e) {
-        console.log(`Error in LaunchAgent: "${e}"`);
+        console.log(`Error in LaunchAgent: "${JSON.stringify(e, null, 4)}"`);
     }
 })();

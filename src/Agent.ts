@@ -1,5 +1,6 @@
 const moment = require('moment');
 const mtz = require('moment-timezone');
+const readline = require('readline');
 const spawn = require('child_process').spawn;
 const Tail = require('tail').Tail;
 
@@ -33,6 +34,7 @@ import {
     TaskStatus,
 } from './shared/Enums';
 import { AgentLogger } from './shared/SGAgentLogger';
+import { LambdaUtils } from './shared/LambdaUtils';
 import { SGStrings } from './shared/SGStrings';
 import { SGUtils } from './shared/SGUtils';
 import { StompConnector } from './shared/StompLib';
@@ -1108,113 +1110,76 @@ export default class Agent {
         stdoutBytesAlreadyProcessed = 0,
         stdoutTruncated = false
     ) => {
-        const appInst = this;
-        return new Promise((resolve, reject) => {
-            try {
-                let lineCount = 0;
-                let bytesRead = 0;
-                let output = '';
-                const runtimeVars = {};
-                const lastNLines: string[] = [];
-                const s = fs
-                    .createReadStream(filePath)
-                    .pipe(es.split())
-                    .pipe(
-                        es
-                            .mapSync(function (line) {
-                                // pause the readstream
-                                s.pause();
-                                lineCount += 1;
-                                const extractRes = appInst.ExtractRuntimeVarsFromString(line);
-                                const rtv = extractRes.runtimeVars;
-                                let newLine: string = extractRes.line;
-                                Object.assign(runtimeVars, rtv);
-                                if (saveOutput && newLine) {
-                                    newLine = appInst.ReplaceSensitiveRuntimeVarValuesInString(
-                                        newLine,
-                                        task.runtimeVars
-                                    );
-                                    const strLenBytes = Buffer.byteLength(newLine, 'utf8');
-                                    bytesRead += strLenBytes;
-                                    if (bytesRead > stdoutBytesAlreadyProcessed) {
-                                        if (!stdoutTruncated) {
-                                            if (strLenBytes + stdoutBytesAlreadyProcessed < appInst.maxStdoutSize) {
-                                                output += `${newLine}\n`;
-                                                stdoutBytesAlreadyProcessed += strLenBytes;
-                                            } else {
-                                                output = truncate(output, appInst.maxStdoutSize) + '\n(truncated)\n';
-                                                stdoutTruncated = true;
-                                            }
-                                        }
-
-                                        let lineForTail = newLine;
-                                        if (strLenBytes > appInst.maxSizeLineInTail)
-                                            lineForTail = truncate(newLine, appInst.maxSizeLineInTail) + ' (truncated)';
-                                        lastNLines.push(lineForTail);
-                                        if (lastNLines.length > appInst.numLinesInTail) lastNLines.shift();
-                                    }
-                                }
-                                // resume the readstream
-                                s.resume();
-                            })
-                            .on('error', function (err) {
-                                reject(
-                                    new Error(`Error reading stdout file '${filePath}' on line ${lineCount}: ${err}`)
-                                );
-                            })
-                            .on('end', function () {
-                                if (stdoutTruncated) output += '\n' + lastNLines.join('\n');
-                                resolve({
-                                    output: output,
-                                    runtimeVars: runtimeVars,
-                                    lastNLines: lastNLines,
-                                });
-                            })
-                    );
-            } catch (e) {
-                reject(e);
+        let lineCount = 0;
+        let bytesRead = 0;
+        let output = '';
+        const runtimeVars = {};
+        const lastNLines: string[] = [];
+        try {
+            const fileStream = fs.createReadStream(filePath);
+            const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+            for await (const line of rl) {
+                lineCount += 1;
+                const extractRes = this.ExtractRuntimeVarsFromString(line);
+                const rtv = extractRes.runtimeVars;
+                let newLine: string = extractRes.line;
+                Object.assign(runtimeVars, rtv);
+                if (saveOutput && newLine) {
+                    newLine = this.ReplaceSensitiveRuntimeVarValuesInString(newLine, task.runtimeVars);
+                    const strLenBytes = Buffer.byteLength(newLine, 'utf8');
+                    bytesRead += strLenBytes;
+                    if (bytesRead > stdoutBytesAlreadyProcessed) {
+                        if (!stdoutTruncated) {
+                            if (strLenBytes + stdoutBytesAlreadyProcessed < this.maxStdoutSize) {
+                                output += `${newLine}\n`;
+                                stdoutBytesAlreadyProcessed += strLenBytes;
+                            } else {
+                                output = truncate(output, this.maxStdoutSize) + '\n(truncated)\n';
+                                stdoutTruncated = true;
+                            }
+                        }
+                        let lineForTail = newLine;
+                        if (strLenBytes > this.maxSizeLineInTail)
+                            lineForTail = truncate(newLine, this.maxSizeLineInTail) + ' (truncated)';
+                        lastNLines.push(lineForTail);
+                        if (lastNLines.length > this.numLinesInTail) lastNLines.shift();
+                    }
+                }
             }
-        });
+            if (stdoutTruncated) output += '\n' + lastNLines.join('\n');
+            return {
+                output: output,
+                runtimeVars: runtimeVars,
+                lastNLines: lastNLines,
+            };
+        } catch (err) {
+            throw new Error(`Error reading stdout file '${filePath}' on line ${lineCount}: ${err}`);
+        }
     };
 
     ParseScriptStderr = async (filePath: string, task: any) => {
-        return new Promise((resolve, reject) => {
-            try {
-                let lineCount = 0;
-                let output = '';
-                const s = fs
-                    .createReadStream(filePath)
-                    .pipe(es.split())
-                    .pipe(
-                        es
-                            .mapSync(function (line) {
-                                // pause the readstream
-                                s.pause();
-                                lineCount += 1;
-                                if (line) {
-                                    line = this.ReplaceSensitiveRuntimeVarValuesInString(line, task.runtimeVars);
-                                    if (Buffer.byteLength(output, 'utf8') < this.maxStderrSize) {
-                                        output += `${line}\n`;
-                                        if (Buffer.byteLength(output, 'utf8') > this.maxStderrSize)
-                                            output = truncate(output, this.maxStderrSize) + ' (truncated)';
-                                    }
-                                }
-                                // resume the readstream
-                                s.resume();
-                            })
-                            .on('error', function (err) {
-                                reject(
-                                    new Error(`Error reading stderr file '${filePath}' on line ${lineCount}: ${err}`)
-                                );
-                            })
-                            .on('end', function () {
-                                resolve({ output: output });
-                            })
-                    );
-            } catch (e) {
-                reject(e);
+        let lineCount = 0;
+        let output = '';
+        try {
+            const fileStream = fs.createReadStream(filePath);
+            const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+            for await (let line of rl) {
+                lineCount += 1;
+                if (line) {
+                    line = this.ReplaceSensitiveRuntimeVarValuesInString(line, task.runtimeVars);
+                    if (Buffer.byteLength(output, 'utf8') < this.maxStderrSize) {
+                        output += `${line}\n`;
+                        if (Buffer.byteLength(output, 'utf8') > this.maxStderrSize) {
+                            output = truncate(output, this.maxStderrSize) + ' (truncated)';
+                            break;
+                        }
+                    }
+                }
             }
-        });
+            return { output: output };
+        } catch (err) {
+            throw new Error(`Error reading stderr file '${filePath}' on line ${lineCount}: ${err}`);
+        }
     };
 
     GetSysInfo = async () => {
@@ -1267,240 +1232,73 @@ export default class Agent {
         return sysInfo;
     };
 
-    RunningTailHandler = async (params: any) => {
-        /// process queued tail messages
-        while (true) {
-            if (params.queueTail.length < 1) {
-                if (params.procFinished) {
-                    break;
-                }
-                if (!(params.taskOutcomeId in runningProcesses)) {
-                    break;
-                }
-                for (let i = 0; i < params.appInst.sendUpdatesInterval / 10; i++) {
-                    await SGUtils.sleep(params.appInst.sendUpdatesInterval / 10);
-                    if (params.procFinished) break;
-                }
-                continue;
-            }
-
-            const data: any[] = params.queueTail.splice(0);
-            try {
-                const dataStrings: string[] = data.map((m) => m.message);
-                const dataAsString = dataStrings.join('');
-                const extractRes = params.appInst.ExtractRuntimeVarsFromString(dataAsString);
-                const rtv = extractRes.runtimeVars;
-                const rtvUpdates = {};
-                for (let indexRTV = 0; indexRTV < Object.keys(rtv).length; indexRTV++) {
-                    const key = Object.keys(rtv)[indexRTV];
-                    if (!params.rtvCumulative[key] || params.rtvCumulative[key] != rtv[key]) {
-                        rtvUpdates[key] = rtv[key];
-                        params.rtvCumulative[key] = rtv[key];
-                    }
-                }
-                const usageData = this.ExtractUsageDataFromLambdaLog(data);
-                params = Object.assign(params, usageData);
-                if (Object.keys(rtvUpdates).length > 0) {
-                    // console.log(`****************** taskOutcomeId -> ${params.taskOutcomeId}, runtimeVars -> ${JSON.stringify(rtvUpdates)}`);
-                    params.appInst.queueAPICall.push({
-                        url: `taskOutcome/${params.taskOutcomeId}`,
-                        method: 'PUT',
-                        headers: null,
-                        data: { _teamId: params._teamId, runtimeVars: rtvUpdates },
-                    });
-                }
-                params.lastNLines = params.lastNLines.concat(dataStrings).slice(-params.appInst.numLinesInTail);
-                for (let i = 0; i < params.lastNLines.length; i++) {
-                    if (Buffer.byteLength(params.lastNLines[i], 'utf8') > params.appInst.maxSizeLineInTail)
-                        params.lastNLines[i] =
-                            truncate(params.lastNLines[i], params.appInst.maxSizeLineInTail) + ' (truncated)';
-                }
-                while (true) {
-                    if (dataStrings.length < 1) break;
-                    let stdoutToUpload = '';
-                    let countLinesToUpload = 0;
-                    if (!params.stdoutTruncated) {
-                        const maxStdoutUploadSize = 51200;
-                        let stdoutBytesProcessedLocal = 0;
-                        for (let i = 0; i < dataStrings.length; i++) {
-                            const strLenBytes = Buffer.byteLength(dataStrings[i], 'utf8');
-                            if (params.stdoutBytesProcessed + strLenBytes > params.appInst.maxStdoutSize) {
-                                stdoutToUpload += '\n(max stdout size exceeded - results truncated)\n';
-                                params.stdoutTruncated = true;
-                                break;
-                            }
-                            if (stdoutBytesProcessedLocal + strLenBytes > maxStdoutUploadSize) {
-                                break;
-                            }
-                            stdoutToUpload += `${dataStrings[i]}\n`;
-                            params.stdoutBytesProcessed += strLenBytes;
-                            stdoutBytesProcessedLocal += strLenBytes;
-                            countLinesToUpload += 1;
-                        }
-                    }
-                    dataStrings.splice(0, countLinesToUpload);
-                    const updates = {
-                        _teamId: params._teamId,
-                        tail: params.lastNLines,
-                        stdout: stdoutToUpload,
-                        status: StepStatus.RUNNING,
-                        lastUpdateId: params.updateId,
-                    };
-                    params.updateId += 1;
-                    await params.appInst.RestAPICall(`stepOutcome/${params.stepOutcomeId}`, 'PUT', { data: updates });
-
-                    if (params.stdoutTruncated) break;
-                }
-            } catch (err) {
-                params.appInst.LogError(`Error handling stdout tail`, err.stack, SGUtils.errorToObj(err));
-                await SGUtils.sleep(1000);
-            }
-        }
-        params.stdoutAnalysisFinished = true;
-    };
-
-    ExtractUsageDataFromLambdaLog(data: any[]): any {
-        const usageData: any = {};
-        for (let i = 0; i < data.length; i++) {
-            const msg = data[i];
-            if (msg.startsWith('REPORT ')) {
-                const elems: string[] = msg.split('\t');
-                for (let j = 0; j < elems.length; j++) {
-                    const elem: string = elems[j];
-                    if (elem.startsWith('Duration: ')) {
-                        try {
-                            usageData.lambdaDuration = Number(
-                                elem.split(':').slice(1, 3).join(' ').trim().split(' ')[0]
-                            );
-                        } catch (err) {
-                            // continue regardless of error
-                        }
-                    } else if (elem.startsWith('Billed Duration: ')) {
-                        try {
-                            usageData.lambdaBilledDuration = Number(
-                                elem.split(':').slice(1, 3).join(' ').trim().split(' ')[0]
-                            );
-                        } catch (err) {
-                            // continue regardless of error
-                        }
-                    } else if (elem.startsWith('Memory Size: ')) {
-                        try {
-                            usageData.lambdaMemSize = Number(
-                                elem.split(':').slice(1, 3).join(' ').trim().split(' ')[0]
-                            );
-                        } catch (err) {
-                            // continue regardless of error
-                        }
-                    } else if (elem.startsWith('Max Memory Used: ')) {
-                        try {
-                            usageData.lambdaMaxMemUsed = Number(
-                                elem.split(':').slice(1, 3).join(' ').trim().split(' ')[0]
-                            );
-                        } catch (err) {
-                            // continue regardless of error
-                        }
-                    } else if (elem.startsWith('Init Duration: ')) {
-                        try {
-                            usageData.lambdaInitDuration = Number(
-                                elem.split(':').slice(1, 3).join(' ').trim().split(' ')[0]
-                            );
-                        } catch (err) {
-                            // continue regardless of error
-                        }
-                    }
-                }
-            }
-        }
-
-        return usageData;
-    }
-
-    CreateAWSLambdaZipFile = async (
+    CreateAWSLambdaArtifact = async (
         step: StepSchema,
         task: TaskSchema,
-        stateVars,
-        workingDirectory: any
+        stepOutcomeId: mongodb.ObjectId,
+        lastNLines: string[],
+        stateVars: any,
+        workingDirectory: string
     ): Promise<any> => {
-        let lambdaFileLoadedToSGAWS = false;
         let handler = '';
-        const lambdaCode: any = {};
-        if (step.lambdaRuntime.toLowerCase().startsWith('node')) {
-            stateVars.zipFilePath = <string>(
-                await SGUtils.CreateAWSLambdaZipFile_NodeJS(
-                    workingDirectory,
-                    SGUtils.atob(step.script.code),
-                    step.lambdaDependencies,
-                    task.id
-                )
-            );
-            const zipContents = fs.readFileSync(stateVars.zipFilePath);
-            lambdaCode.ZipFile = zipContents;
-            handler = 'index.handler';
-        } else if (step.lambdaRuntime.toLowerCase().startsWith('python')) {
-            stateVars.zipFilePath = <string>(
-                await SGUtils.CreateAWSLambdaZipFile_Python(
-                    workingDirectory,
-                    SGUtils.atob(step.script.code),
-                    step.lambdaDependencies,
-                    task.id
-                )
-            );
-            const zipContents = fs.readFileSync(stateVars.zipFilePath);
-            lambdaCode.ZipFile = zipContents;
-            handler = 'lambda_function.lambda_handler';
-        } else if (step.lambdaRuntime.toLowerCase().startsWith('ruby')) {
-            stateVars.zipFilePath = <string>(
-                await SGUtils.CreateAWSLambdaZipFile_Ruby(
-                    workingDirectory,
-                    SGUtils.atob(step.script.code),
-                    step.lambdaDependencies,
-                    task.id
-                )
-            );
-            const zipContents = fs.readFileSync(stateVars.zipFilePath);
-            lambdaCode.ZipFile = zipContents;
-            handler = 'lambda_function.lambda_handler';
-        } else {
-            this.LogError(`Unsupported lambda runtime`, '', { step });
-            throw new Error('Unsupported lambda runtime');
-        }
-        const zipFileSizeMB: number = fs.statSync(stateVars.zipFilePath).size / 1024.0 / 1024.0;
-        if (zipFileSizeMB > 0) {
-            const s3Path = `lambda/${task.id}`;
-            const res = await SGUtils.RunCommand(
-                `aws s3 cp ${stateVars.zipFilePath} s3://${step.s3Bucket}/${s3Path}`,
-                {}
-            );
-            if (res.stderr != '' || res.code != 0) {
-                this.LogError(`Error loading lambda function to S3`, '', {
-                    stderr: res.stderr,
-                    stdout: res.stdout,
-                    code: res.code,
-                });
-                throw new Error(`Error loading lambda function`);
-            }
-            lambdaCode.S3Bucket = step.s3Bucket;
-            lambdaCode.S3Key = s3Path;
-            delete lambdaCode.ZipFile;
-            lambdaFileLoadedToSGAWS = true;
-        }
+        let lambdaCode: any = {};
+        if (!step.lambdaZipfile) {
+            const msg = `${new Date().toISOString()} Creating AWS Lambda function\n`;
+            lastNLines.push(msg);
+            const updates = {
+                _teamId: step._teamId,
+                tail: lastNLines,
+                stdout: msg,
+                status: StepStatus.RUNNING,
+                lastUpdateId: stateVars.updateId,
+            };
+            await this.RestAPICall(`stepOutcome/${stepOutcomeId}`, 'PUT', { data: updates });
+            stateVars.updateId += 1;
 
-        return { handler, lambdaCode, lambdaFileLoadedToSGAWS };
+            const createAWSLambdaZipFileResult = await LambdaUtils.CreateAWSLambdaZipFile(
+                step,
+                task,
+                stateVars,
+                workingDirectory,
+                this.LogError
+            );
+            lambdaCode = createAWSLambdaZipFileResult.lambdaCode;
+            handler = createAWSLambdaZipFileResult.handler;
+            createAWSLambdaZipFileResult.lambdaFileLoadedToSGAWS;
+        } else {
+            const artifact = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, 'GET', {
+                data: { _teamId: step._teamId },
+            });
+            lambdaCode.S3Bucket = step.s3Bucket;
+
+            let s3Path = '';
+            if (this.env != 'production') {
+                if (this.env == 'unittest') s3Path += `debug/`;
+                else s3Path += `${this.env}/`;
+            }
+            s3Path += `${step._teamId}/`;
+
+            if (artifact.prefix) s3Path += `${artifact.prefix}`;
+            s3Path += artifact.name;
+
+            lambdaCode.S3Key = s3Path;
+            handler = step.lambdaFunctionHandler;
+        }
+        return { handler, lambdaCode };
     };
 
     RunStepAsync_Lambda = async (
         step: StepSchema,
-        workingDirectory: string,
         task: TaskSchema,
         stepOutcomeId: mongodb.ObjectId,
         lastUpdatedId: number,
-        taskOutcomeId: mongodb.ObjectId
+        taskOutcomeId: mongodb.ObjectId,
+        workingDirectory: string
     ) => {
         let error = '';
         try {
             const stdoutFilePath = workingDirectory + path.sep + SGUtils.makeid(10) + '.out';
             const fileOut = fs.openSync(stdoutFilePath, 'w');
-
             const stateVars = {
                 updateId: lastUpdatedId + 1,
                 procFinished: false,
@@ -1521,50 +1319,17 @@ export default class Agent {
             let lambdaMemSize: string = undefined;
             let lambdaMaxMemUsed: string = undefined;
             let lambdaInitDuration: string = undefined;
-
-            if (!step.lambdaZipfile) {
-                const msg = `${new Date().toISOString()} Creating AWS Lambda function\n`;
-                lastNLines.push(msg);
-                const updates = {
-                    _teamId: _teamId,
-                    tail: lastNLines,
-                    stdout: msg,
-                    status: StepStatus.RUNNING,
-                    lastUpdateId: stateVars.updateId,
-                };
-                await this.RestAPICall(`stepOutcome/${stepOutcomeId}`, 'PUT', { data: updates });
-                stateVars.updateId += 1;
-
-                const createAWSLambdaZipFileResult = await this.CreateAWSLambdaZipFile(
-                    step,
-                    task,
-                    stateVars,
-                    workingDirectory
-                );
-                lambdaCode = createAWSLambdaZipFileResult.lambdaCode;
-                handler = createAWSLambdaZipFileResult.handler;
-                createAWSLambdaZipFileResult.lambdaFileLoadedToSGAWS;
-            } else {
-                const artifact = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, 'GET', {
-                    data: { _teamId },
-                });
-                lambdaCode.S3Bucket = step.s3Bucket;
-
-                let s3Path = '';
-                if (this.env != 'production') {
-                    if (this.env == 'unittest') s3Path += `debug/`;
-                    else s3Path += `${this.env}/`;
-                }
-                s3Path += `${_teamId}/`;
-
-                if (artifact.prefix) s3Path += `${artifact.prefix}`;
-                s3Path += artifact.name;
-
-                lambdaCode.S3Key = s3Path;
-                handler = step.lambdaFunctionHandler;
-            }
-
-            await SGUtils.CreateAWSLambda(
+            const createLambdaRes = await this.CreateAWSLambdaArtifact(
+                step,
+                task,
+                stepOutcomeId,
+                lastNLines,
+                stateVars,
+                workingDirectory
+            );
+            handler = createLambdaRes.handler;
+            lambdaCode = createLambdaRes.lambdaCode;
+            await LambdaUtils.CreateAWSLambda(
                 task._teamId,
                 task._jobId,
                 task.id,
@@ -1578,7 +1343,6 @@ export default class Agent {
                 step.lambdaAWSRegion,
                 handler
             );
-
             if (stateVars.zipFilePath) {
                 try {
                     if (fs.existsSync(stateVars.zipFilePath)) fs.unlinkSync(stateVars.zipFilePath);
@@ -1586,7 +1350,6 @@ export default class Agent {
                     // continue regardless of error
                 }
             }
-
             const msg = `${new Date().toISOString()} Running AWS Lambda function\n`;
             lastNLines.push(msg);
             const updates = {
@@ -1598,13 +1361,12 @@ export default class Agent {
             };
             await this.RestAPICall(`stepOutcome/${stepOutcomeId}`, 'PUT', { data: updates });
             stateVars.updateId += 1;
-
             let payload = {};
             if (step.variables) payload = Object.assign(payload, step.variables);
             runningProcesses[taskOutcomeId] = 'no requestId yet';
             let runLambdaError: any;
             let runLambdaResult: any;
-            SGUtils.RunAWSLambda(task.id, step.lambdaAWSRegion, payload, (err, data) => {
+            LambdaUtils.RunAWSLambda(task.id, step.lambdaAWSRegion, payload, (err, data) => {
                 if (err) {
                     runLambdaError = err;
                     stateVars.runLambdaFinished = true;
@@ -1613,7 +1375,6 @@ export default class Agent {
                     runLambdaResult = data;
                 }
             });
-
             this.ProcessTailQueue(
                 queueTail,
                 step,
@@ -1624,7 +1385,7 @@ export default class Agent {
                 lastNLines,
                 stateVars,
                 (data) => {
-                    const usageData = this.ExtractUsageDataFromLambdaLog(data);
+                    const usageData = LambdaUtils.ExtractUsageDataFromLambdaLog(data);
                     lambdaDuration = usageData.lambdaDuration;
                     lambdaBilledDuration = usageData.lambdaBilledDuration;
                     lambdaMemSize = usageData.lambdaMemSize;
@@ -1632,8 +1393,7 @@ export default class Agent {
                     lambdaInitDuration = usageData.lambdaInitDuration;
                 }
             );
-
-            await SGUtils.GetCloudWatchLogsEvents(task.id, stateVars, this.logger, (messages) => {
+            await LambdaUtils.GetCloudWatchLogsEvents(task.id, stateVars, this.logger, (messages) => {
                 for (let i = 0; i < messages.length; i++) {
                     const message = messages[i].message;
                     if (message.startsWith('START')) {
@@ -1648,14 +1408,9 @@ export default class Agent {
 
                 fs.writeSync(fileOut, messages.map((m) => m.message).join('\n'));
             });
-
             fs.closeSync(fileOut);
-
             stateVars.procFinished = true;
-
-            await SGUtils.sleep(100);
             while (!stateVars.stdoutAnalysisFinished) await SGUtils.sleep(100);
-
             if (runLambdaError) {
                 this.LogError(runLambdaError.message, runLambdaError.stack, runLambdaError);
                 error = 'Unknown error occurred running lambda function!';
@@ -1666,12 +1421,10 @@ export default class Agent {
                     error = `errorType: ${payload.errorType} - errorMessage: ${payload.errorMessage} - stackTrace: ${payload.stackTrace}\n${error}`;
                 }
             }
-
             let code = 0;
             if (error != '') {
                 code = 1;
             }
-
             let outParams = await this.PostRunScriptProcessing(
                 step,
                 task,
@@ -1681,7 +1434,6 @@ export default class Agent {
                 code,
                 workingDirectory
             );
-
             outParams = {
                 ...outParams,
                 ...{
@@ -1692,7 +1444,6 @@ export default class Agent {
                     lambdaInitDuration: lambdaInitDuration,
                 },
             };
-
             if (error == '') {
                 outParams[SGStrings.status] = StepStatus.SUCCEEDED;
             } else {
@@ -1702,13 +1453,8 @@ export default class Agent {
             }
             outParams['stderr'] = error;
             outParams['_teamId'] = _teamId;
-
-            await SGUtils.DeleteAWSLambda(task.id, step.lambdaAWSRegion);
-            await SGUtils.DeleteCloudWatchLogsEvents(task.id);
-            // if (lambdaFileLoadedToSGAWS) {
-            //     await SGUtils.RunCommand(`aws s3 rm s3://${lambdaCode.S3Bucket}/${lambdaCode.S3Key}`, {});
-            // }
-
+            await LambdaUtils.DeleteAWSLambda(task.id, step.lambdaAWSRegion);
+            await LambdaUtils.DeleteCloudWatchLogsEvents(task.id);
             return outParams;
         } catch (e) {
             const errMsg: string = e.message || e.toString();
@@ -1824,7 +1570,9 @@ export default class Agent {
                 }
                 if (fnOnMessagesDequeued) fnOnMessagesDequeued(data);
                 // Updates lastNLines with the last "numLinesInTail" lines from stdout
-                lastNLines = lastNLines.concat(data).slice(-this.numLinesInTail);
+                lastNLines.push(...data);
+                if (lastNLines.length > this.numLinesInTail)
+                    lastNLines.splice(0, lastNLines.length - this.numLinesInTail);
                 for (let i = 0; i < lastNLines.length; i++) {
                     if (Buffer.byteLength(lastNLines[i], 'utf8') > this.maxSizeLineInTail)
                         lastNLines[i] = truncate(lastNLines[i], this.maxSizeLineInTail) + ' (truncated)';
@@ -2230,11 +1978,11 @@ export default class Agent {
             if (task.target == TaskDefTarget.AWS_LAMBDA) {
                 runStepOutcome = await this.RunStepAsync_Lambda(
                     step,
-                    workingDirectory,
                     task,
                     stepOutcome.id,
                     stepOutcome.lastUpdateId,
-                    taskOutcome.id
+                    taskOutcome.id,
+                    workingDirectory
                 );
             } else {
                 runStepOutcome = await this.RunStepAsync(
