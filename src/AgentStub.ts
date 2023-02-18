@@ -34,9 +34,10 @@ export default class AgentStub {
         this.apiUrl = params.apiUrl;
         this.env = params.env;
 
+        if (Object.prototype.hasOwnProperty.call(params, 'logLevel')) this.logLevel = parseInt(params['logLevel']);
+
         this.logDest = 'file';
-        if (params.hasOwnProperty('logDest')) this.logDest = params['logDest'];
-        if (params.hasOwnProperty('logLevel')) this.logLevel = parseInt(params['logLevel']);
+        if (Object.prototype.hasOwnProperty.call(params, 'logDest')) this.logDest = params['logDest'];
 
         const userConfig: any = this.getUserConfigValues();
         if (process.env.SG_ACCESS_KEY_ID) params.accessKeyId = process.env.SG_ACCESS_KEY_ID;
@@ -94,7 +95,7 @@ export default class AgentStub {
             'SGAgentLauncherProc',
             SGUtils.makeid(10),
             `sg-agent-msg-${this._teamId}`,
-            async (message, socket) => {
+            async (message) => {
                 const logMsg = 'Message from Agent';
                 this.logger.LogDebug(logMsg, message);
                 if (message.propertyOverrides) {
@@ -222,78 +223,76 @@ export default class AgentStub {
     }
 
     async RestAPICall(url: string, method: string, headers: any = {}, data: any = {}) {
-        return new Promise(async (resolve, reject) => {
-            let fullurl = '';
-            try {
-                if (!this.params.token) await this.RestAPILogin();
-                let apiUrl = this.apiUrl;
-                const apiVersion = this.params.agentLogsAPIVersion;
+        let fullurl = '';
+        try {
+            if (!this.params.token) await this.RestAPILogin();
+            let apiUrl = this.apiUrl;
+            const apiVersion = this.params.agentLogsAPIVersion;
 
-                const apiPort = this.params.apiPort;
+            const apiPort = this.params.apiPort;
 
-                if (apiPort != '') apiUrl += `:${apiPort}`;
-                fullurl = `${apiUrl}/api/${apiVersion}/${url}`;
+            if (apiPort != '') apiUrl += `:${apiPort}`;
+            fullurl = `${apiUrl}/api/${apiVersion}/${url}`;
 
-                const combinedHeaders: any = Object.assign(
-                    {
-                        Cookie: `Auth=${this.params.token};`,
-                        _teamId: this._teamId,
-                    },
-                    headers
-                );
+            const combinedHeaders: any = Object.assign(
+                {
+                    Cookie: `Auth=${this.params.token};`,
+                    _teamId: this._teamId,
+                },
+                headers
+            );
 
-                // console.log('RestAPICall -> url ', url, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.params.token);
-                this.logger.LogDebug(`RestAPICall`, {
-                    fullurl,
-                    method,
-                    combinedHeaders,
-                    data,
-                    token: this.params.token,
-                });
+            // console.log('RestAPICall -> url ', url, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.params.token);
+            this.logger.LogDebug(`RestAPICall`, {
+                fullurl,
+                method,
+                combinedHeaders,
+                data,
+                token: this.params.token,
+            });
 
-                const response = await axios({
-                    url: fullurl,
-                    method: method,
-                    responseType: 'text',
-                    headers: combinedHeaders,
-                    data: data,
-                });
+            const response = await axios({
+                url: fullurl,
+                method: method,
+                responseType: 'text',
+                headers: combinedHeaders,
+                data: data,
+            });
 
-                if (_.isArray(response.headers['set-cookie']) && response.headers['set-cookie'].length > 0) {
-                    const tmp = response.headers['set-cookie'][0].split(';');
-                    let auth: string = tmp[0];
-                    auth = auth.substring(5) + ';';
-                    this.params.token = auth;
-                }
-
-                resolve(response.data.data);
-            } catch (error) {
-                if (
-                    error.response &&
-                    error.response.data &&
-                    error.response.data.errors &&
-                    _.isArray(error.response.data.errors) &&
-                    error.response.data.errors.length > 0 &&
-                    error.response.data.errors[0].description == 'The access token expired'
-                ) {
-                    await this.RefreshAPIToken();
-                    resolve(this.RestAPICall(url, method, headers, data));
-                } else {
-                    let newError: any = { config: error.config };
-                    if (error.response) {
-                        newError = Object.assign(newError, {
-                            data: error.response.data,
-                            status: error.response.status,
-                            headers: error.response.headers,
-                        });
-                        this.logger.LogError(`RestAPICall error:`, '', newError);
-                    } else {
-                        this.logger.LogError(`RestAPICall error`, '', newError);
-                    }
-                    reject(Object.assign(newError, { Error: error.message }));
-                }
+            if (_.isArray(response.headers['set-cookie']) && response.headers['set-cookie'].length > 0) {
+                const tmp = response.headers['set-cookie'][0].split(';');
+                let auth: string = tmp[0];
+                auth = auth.substring(5) + ';';
+                this.params.token = auth;
             }
-        });
+
+            return response.data.data;
+        } catch (error) {
+            if (
+                error.response &&
+                error.response.data &&
+                error.response.data.errors &&
+                _.isArray(error.response.data.errors) &&
+                error.response.data.errors.length > 0 &&
+                error.response.data.errors[0].description == 'The access token expired'
+            ) {
+                await this.RefreshAPIToken();
+                return this.RestAPICall(url, method, headers, data);
+            } else {
+                let newError: any = { config: error.config };
+                if (error.response) {
+                    newError = Object.assign(newError, {
+                        data: error.response.data,
+                        status: error.response.status,
+                        headers: error.response.headers,
+                    });
+                    this.logger.LogError(`RestAPICall error:`, '', newError);
+                } else {
+                    this.logger.LogError(`RestAPICall error`, '', newError);
+                }
+                throw new Error(Object.assign(newError, { Error: error.message }));
+            }
+        }
     }
 
     async Start() {
@@ -330,7 +329,7 @@ export default class AgentStub {
     }
 
     async SpawnAgentProcess(commandString: any, args: string[]) {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             try {
                 this.logger.LogDebug('AgentLauncher running command', {
                     commandString,
@@ -377,36 +376,31 @@ export default class AgentStub {
     }
 
     async DownloadAgent_GetUrl(numTries = 0) {
-        return new Promise(async (resolve, reject) => {
-            while (true) {
-                try {
-                    let url = `agentDownload/agent/${this.MachineId()}/${this.params.agentPlatform}`;
-                    if (this.params.agentArch != '') url += `/${this.params.agentArch}`;
+        while (true) {
+            try {
+                let url = `agentDownload/agent/${this.MachineId()}/${this.params.agentPlatform}`;
+                if (this.params.agentArch != '') url += `/${this.params.agentArch}`;
 
-                    const agentDownloadUrl = await this.RestAPICall(url, 'GET', { _teamId: this._teamId }, null);
-                    this.logger.LogDebug(`Agent download url`, { url, agentDownloadUrl });
-                    resolve(agentDownloadUrl);
-                    break;
-                } catch (err) {
-                    if (err && err.status) {
-                        if (err.status == 303) {
-                            if (++numTries > waitForAgentCreateMaxRetries) {
-                                reject(`Exceeded max tries to get agent download url - restarting: ${err}`);
-                                break;
-                            } else {
-                                await SGUtils.sleep(waitForAgentCreateInterval);
-                            }
+                const agentDownloadUrl = await this.RestAPICall(url, 'GET', { _teamId: this._teamId }, null);
+                this.logger.LogDebug(`Agent download url`, { url, agentDownloadUrl });
+                return agentDownloadUrl;
+                break;
+            } catch (err) {
+                if (err && err.status) {
+                    if (err.status == 303) {
+                        if (++numTries > waitForAgentCreateMaxRetries) {
+                            throw new Error(`Exceeded max tries to get agent download url - restarting: ${err}`);
                         } else {
-                            reject(err);
-                            break;
+                            await SGUtils.sleep(waitForAgentCreateInterval);
                         }
                     } else {
-                        reject(err);
-                        break;
+                        throw new Error(err);
                     }
+                } else {
+                    throw new Error(err);
                 }
             }
-        });
+        }
     }
 
     async DownloadAgent() {
@@ -427,7 +421,7 @@ export default class AgentStub {
         return new Promise<void>((resolve, reject) => {
             writer.on('finish', async () => {
                 await SGUtils.GunzipFile(agentPathCompressed);
-                await new Promise<void>(async (resolve, reject) => {
+                await new Promise<void>((resolve, reject) => {
                     fs.chmod(agentPathUncompressed, 0o0755, (err) => {
                         if (err) {
                             reject(err);

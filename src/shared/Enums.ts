@@ -36,6 +36,8 @@ enum TaskFailureCode {
     MISSING_TARGET_TAGS = 5,
     LAUNCH_TASK_ERROR = 6,
     TASK_EXEC_ERROR = 7,
+    INVALID_TASK_STATUS = 8,
+    ARTIFACT_DOWNLOAD_ERROR = 9,
 }
 export { TaskFailureCode };
 
