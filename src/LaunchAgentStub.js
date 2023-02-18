@@ -30,7 +30,7 @@ process.on('unhandledRejection', (reason, p) => {
         await new Promise((resolve, reject) => {
             lockfile
                 .lock(process.argv[0])
-                .then((release) => {
+                .then(() => {
                     resolve();
                 })
                 .catch((err) => {
@@ -38,8 +38,8 @@ process.on('unhandledRejection', (reason, p) => {
                 });
         });
 
-        machineId = os.hostname();
-        ipAddress = SGUtils_1.SGUtils.getIpAddress();
+        const machineId = os.hostname();
+        const ipAddress = SGUtils_1.SGUtils.getIpAddress();
 
         // console.log("config ----------> ", config);
 

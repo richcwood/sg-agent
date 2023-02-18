@@ -64,54 +64,46 @@ export class StompConnector {
         this.logger.LogDebug(msg, Object.assign({ ClientId: this.clientId }, values));
     }
 
-    Start() {
-        return new Promise<void>(async (resolve, reject) => {
-            try {
-                this.stompClient = new Client({
-                    brokerURL: this.url,
-                    connectHeaders: {
-                        login: this.userName,
-                        passcode: this.password,
-                        host: this.vhost,
-                    },
-                    heartbeatIncoming: 10000,
-                    heartbeatOutgoing: 10000,
-                });
-
-                this.stompClient.discardWebsocketOnCommFailure = true;
-                this.stompClient.onConnect = this.OnConnect.bind(this);
-                this.stompClient.onStompError = this.OnStompError.bind(this);
-
-                this.stompClient.activate();
-
-                this.LogDebug('Completed request to start Stomp connection to RabbitMQ', {
-                    RmqUrl: this.url,
-                    Vhost: this.vhost,
-                    UserName: this.userName,
-                });
-
-                let retryCount = 0;
-                while (true) {
-                    if (this.connectedToStomp) {
-                        resolve();
-                        return;
-                    }
-                    retryCount += 1;
-                    if (retryCount < 20) {
-                        await SGUtils.sleep(500);
-                    } else {
-                        throw new Error('timeout');
-                    }
-                }
-            } catch (e) {
-                // this.LogError('Error connecting to RabbitMQ: ' + e.message, e.stack, {});
-                reject(e);
-            }
+    async Start() {
+        this.stompClient = new Client({
+            brokerURL: this.url,
+            connectHeaders: {
+                login: this.userName,
+                passcode: this.password,
+                host: this.vhost,
+            },
+            heartbeatIncoming: 10000,
+            heartbeatOutgoing: 10000,
         });
+
+        this.stompClient.discardWebsocketOnCommFailure = true;
+        this.stompClient.onConnect = this.OnConnect.bind(this);
+        this.stompClient.onStompError = this.OnStompError.bind(this);
+
+        this.stompClient.activate();
+
+        this.LogDebug('Completed request to start Stomp connection to RabbitMQ', {
+            RmqUrl: this.url,
+            Vhost: this.vhost,
+            UserName: this.userName,
+        });
+
+        let retryCount = 0;
+        while (true) {
+            if (this.connectedToStomp) {
+                return;
+            }
+            retryCount += 1;
+            if (retryCount < 20) {
+                await SGUtils.sleep(500);
+            } else {
+                throw new Error('timeout');
+            }
+        }
     }
 
     async Stop() {
-        return new Promise<void>((resolve, reject) => {
+        return new Promise<void>((resolve) => {
             this.LogDebug('Received request to stop Stomp connection to RabbitMQ', {});
             try {
                 this.activeMessages.length = 0;
@@ -166,74 +158,72 @@ export class StompConnector {
         noAck: boolean,
         fnHandleMessage: any,
         exchange: string,
-        expires: number = 0
+        expires = 0
     ) {
-        return new Promise(async (resolve, reject) => {
-            if (!queueName || queueName == '') reject('Missing or blank route parameter');
+        if (!queueName || queueName == '') throw new Error('Missing or blank route parameter');
 
-            let sub: any;
-            try {
-                if (exchange != '') await this.rmqAdmin.createExchange(exchange, 'topic', false, true);
+        let sub: any;
+        try {
+            if (exchange != '') await this.rmqAdmin.createExchange(exchange, 'topic', false, true);
 
-                let headers: any = {
-                    exclusive: exclusive,
-                    durable: durable,
-                    'auto-delete': autoDelete,
-                    'prefetch-count': this.prefetchCount,
-                };
-                if (!noAck) headers['ack'] = 'client';
-                if (expires > 0) headers['x-expires'] = expires;
-                headers['x-queue-name'] = queueName;
-                let routingKey = `/queue/${queueName}`;
-                if (exchange && exchange != '') routingKey = `/exchange/${exchange}/${queueName}`;
-                sub = await this.stompClient.subscribe(
-                    routingKey,
-                    (msg) => {
-                        if (msg != null) {
-                            let msgKey = null;
-                            try {
-                                // this.LogDebug('Message received', { 'Command': msg.command, 'Headers': util.inspect(msg.headers) });
-                                msgKey = msg.headers['message-id'];
-                                this.activeMessages.push(msgKey);
+            let headers: any = {
+                exclusive: exclusive,
+                durable: durable,
+                'auto-delete': autoDelete,
+                'prefetch-count': this.prefetchCount,
+            };
+            if (!noAck) headers['ack'] = 'client';
+            if (expires > 0) headers['x-expires'] = expires;
+            headers['x-queue-name'] = queueName;
+            let routingKey = `/queue/${queueName}`;
+            if (exchange && exchange != '') routingKey = `/exchange/${exchange}/${queueName}`;
+            sub = await this.stompClient.subscribe(
+                routingKey,
+                (msg) => {
+                    if (msg != null) {
+                        let msgKey = null;
+                        try {
+                            // this.LogDebug('Message received', { 'Command': msg.command, 'Headers': util.inspect(msg.headers) });
+                            msgKey = msg.headers['message-id'];
+                            this.activeMessages.push(msgKey);
 
-                                fnHandleMessage(JSON.parse(msg.body), msgKey, (ok, msgKey) => {
-                                    if (!noAck) {
-                                        if (this.activeMessages.indexOf(msgKey) > -1) {
-                                            try {
-                                                if (ok) msg.ack();
-                                                else msg.nack((headers = { requeue: false }));
-                                                SGUtils.removeItemFromArray(this.activeMessages, msgKey);
-                                            } catch (e) {
-                                                this.LogError(
-                                                    'Error occurred acking Stomp message: ' + e.message,
-                                                    e.stack,
-                                                    {
-                                                        EventArgs: util.inspect(msg, false, null),
-                                                    }
-                                                );
-                                            }
+                            fnHandleMessage(JSON.parse(msg.body), msgKey, (ok, msgKey) => {
+                                if (!noAck) {
+                                    if (this.activeMessages.indexOf(msgKey) > -1) {
+                                        try {
+                                            if (ok) msg.ack();
+                                            else msg.nack((headers = { requeue: false }));
+                                            SGUtils.removeItemFromArray(this.activeMessages, msgKey);
+                                        } catch (e) {
+                                            this.LogError(
+                                                'Error occurred acking Stomp message: ' + e.message,
+                                                e.stack,
+                                                {
+                                                    EventArgs: util.inspect(msg, false, null),
+                                                }
+                                            );
                                         }
                                     }
-                                });
-                            } catch (e) {
-                                this.LogError('Error receiving message', e.stack, { QueueName: queueName });
-                                if (!noAck) {
-                                    msg.ack();
-                                    if (msgKey != null) SGUtils.removeItemFromArray(this.activeMessages, msgKey);
                                 }
+                            });
+                        } catch (e) {
+                            this.LogError('Error receiving message', e.stack, { QueueName: queueName });
+                            if (!noAck) {
+                                msg.ack();
+                                if (msgKey != null) SGUtils.removeItemFromArray(this.activeMessages, msgKey);
                             }
                         }
-                    },
-                    headers
-                );
-                this.subscriptions.push(sub);
-                this.LogDebug('Consuming queue', { QueueName: queueName });
-            } catch (e) {
-                this.LogError('Error consuming Stomp queue', e.stack, { QueueName: queueName });
-                // reject(e);
-            }
-            resolve(sub);
-        });
+                    }
+                },
+                headers
+            );
+            this.subscriptions.push(sub);
+            this.LogDebug('Consuming queue', { QueueName: queueName });
+        } catch (e) {
+            this.LogError('Error consuming Stomp queue', e.stack, { QueueName: queueName });
+            // reject(e);
+        }
+        return sub;
     }
 
     async ConsumeRoute(
@@ -246,79 +236,77 @@ export class StompConnector {
         exchange: string,
         route: string,
         queueName: string,
-        expires: number = 0
+        expires = 0
     ) {
-        return new Promise(async (resolve, reject) => {
-            if (!route || route == '') reject('Missing or blank route parameter');
+        if (!route || route == '') throw new Error('Missing or blank route parameter');
 
-            let sub: any;
-            try {
-                let headers: any = {
-                    exclusive: exclusive,
-                    durable: durable,
-                    'auto-delete': autoDelete,
-                    'prefetch-count': this.prefetchCount,
-                };
-                if (!noAck) headers['ack'] = 'client';
-                headers['id'] = 0;
-                if (id != '') headers['id'] = id;
-                if (expires > 0) headers['x-expires'] = expires;
-                if (queueName && queueName != '') headers['x-queue-name'] = queueName;
-                let routingKey = `/exchange/${exchange}/${route}`;
-                sub = await this.stompClient.subscribe(
-                    routingKey,
-                    (msg) => {
-                        if (msg != null) {
-                            let msgKey = null;
-                            try {
-                                this.LogDebug('Message received', {
-                                    Command: msg.command,
-                                    Headers: util.inspect(msg.headers),
-                                });
-                                msgKey = msg.headers['message-id'];
-                                this.activeMessages.push(msgKey);
+        let sub: any;
+        try {
+            const headers: any = {
+                exclusive: exclusive,
+                durable: durable,
+                'auto-delete': autoDelete,
+                'prefetch-count': this.prefetchCount,
+            };
+            if (!noAck) headers['ack'] = 'client';
+            headers['id'] = 0;
+            if (id != '') headers['id'] = id;
+            if (expires > 0) headers['x-expires'] = expires;
+            if (queueName && queueName != '') headers['x-queue-name'] = queueName;
+            const routingKey = `/exchange/${exchange}/${route}`;
+            sub = await this.stompClient.subscribe(
+                routingKey,
+                (msg) => {
+                    if (msg != null) {
+                        let msgKey = null;
+                        try {
+                            this.LogDebug('Message received', {
+                                Command: msg.command,
+                                Headers: util.inspect(msg.headers),
+                            });
+                            msgKey = msg.headers['message-id'];
+                            this.activeMessages.push(msgKey);
 
-                                fnHandleMessage(JSON.parse(msg.body), msgKey, (ok, msgKey) => {
-                                    if (!noAck) {
-                                        if (this.activeMessages.indexOf(msgKey) > -1) {
-                                            try {
-                                                if (ok) msg.ack();
-                                                else msg.nack();
-                                                SGUtils.removeItemFromArray(this.activeMessages, msgKey);
-                                            } catch (e) {
-                                                this.LogError(
-                                                    'Error occurred acking Stomp message: ' + e.message,
-                                                    e.stack,
-                                                    {
-                                                        EventArgs: util.inspect(msg, false, null),
-                                                    }
-                                                );
-                                            }
+                            fnHandleMessage(JSON.parse(msg.body), msgKey, (ok, msgKey) => {
+                                if (!noAck) {
+                                    if (this.activeMessages.indexOf(msgKey) > -1) {
+                                        try {
+                                            if (ok) msg.ack();
+                                            else msg.nack();
+                                            SGUtils.removeItemFromArray(this.activeMessages, msgKey);
+                                        } catch (e) {
+                                            this.LogError(
+                                                'Error occurred acking Stomp message: ' + e.message,
+                                                e.stack,
+                                                {
+                                                    EventArgs: util.inspect(msg, false, null),
+                                                }
+                                            );
                                         }
                                     }
-                                });
-                            } catch (e) {
-                                this.LogError('Error receiving message', e.stack, { QueueName: id });
-                                if (!noAck) {
-                                    msg.ack();
-                                    if (msgKey != null) SGUtils.removeItemFromArray(this.activeMessages, msgKey);
                                 }
+                            });
+                        } catch (e) {
+                            this.LogError('Error receiving message', e.stack, { QueueName: id });
+                            if (!noAck) {
+                                msg.ack();
+                                if (msgKey != null) SGUtils.removeItemFromArray(this.activeMessages, msgKey);
                             }
                         }
-                    },
-                    headers
-                );
-                this.LogDebug('Consuming route', { QueueName: id, Exchange: exchange, Route: route });
-            } catch (e) {
-                this.LogError('Error consuming Stomp route', e.stack, {
-                    QueueName: id,
-                    Exchange: exchange,
-                    Route: route,
-                });
-                reject(e);
-            }
-            resolve(sub);
-        });
+                    }
+                },
+                headers
+            );
+            this.LogDebug('Consuming route', { QueueName: id, Exchange: exchange, Route: route });
+        } catch (e) {
+            this.LogError('Error consuming Stomp route', e.stack, {
+                QueueName: id,
+                Exchange: exchange,
+                Route: route,
+            });
+            throw new Error(e);
+        }
+        return sub;
     }
 
     async StopConsumingQueue(sub: any) {

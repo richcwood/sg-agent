@@ -4,8 +4,6 @@ import * as AsyncLock from 'async-lock';
 import * as FormData from 'form-data';
 import { LogLevel } from './Enums.js';
 import { SGUtils } from './SGUtils';
-import * as mongodb from 'mongodb';
-import util = require('util');
 import * as compressing from 'compressing';
 import * as _ from 'lodash';
 import * as path from 'path';
@@ -58,7 +56,7 @@ export class AgentLogger {
                     this.readyToWrite = true;
                 }
             },
-            (err, ret) => {
+            () => {
                 if (!this.agent.stopped)
                     setTimeout(() => {
                         this.CycleCacheFile();
@@ -191,7 +189,7 @@ export class AgentLogger {
                 }
                 while (!this.readyToWrite) await SGUtils.sleep(100);
             },
-            (err, ret) => {
+            (err) => {
                 if (err) {
                     console.trace(`Error writing error '${message}" to log file "${this.cacheFilePath}': ${err}`);
                     process.exitCode = 1;
@@ -280,21 +278,15 @@ export class AgentLogger {
     }
 
     async UploadLogFiles(files: any) {
-        return new Promise<void>(async (resolve, reject) => {
-            try {
-                for (let i = 0; i < files.length; i++) {
-                    if (files[i].size < 1) {
-                        if (fs.existsSync(files[i].path)) {
-                            fs.unlinkSync(files[i].path);
-                        }
-                    } else {
-                        await this.UploadLogFile(files[i].path, files[i].size);
-                    }
+        for (let i = 0; i < files.length; i++) {
+            if (files[i].size < 1) {
+                if (fs.existsSync(files[i].path)) {
+                    fs.unlinkSync(files[i].path);
                 }
-            } finally {
-                resolve();
+            } else {
+                await this.UploadLogFile(files[i].path, files[i].size);
             }
-        });
+        }
     }
 
     async UploadLogFile(filePath: string, fileSize: number) {
@@ -327,12 +319,6 @@ export class AgentLogger {
 
             const file = fs.createReadStream(compressedFilePath);
 
-            const config = {
-                headers: {
-                    'Content-Type': 'multipart/form-data',
-                },
-            };
-
             const form = new FormData();
             form.append('buffer', Buffer.alloc(10));
             form.append('logFile', file);
@@ -351,61 +337,5 @@ export class AgentLogger {
         }
 
         if (!success) await SGUtils.sleep(30000);
-
-        // const archivePath = `${this.logsPath}/archive`;
-        // if (!fs.existsSync(archivePath))
-        //     fs.mkdirSync(archivePath);
-
-        // await new Promise( async (resolve, reject) => {
-        //     try {
-        //         const outPath = filePath.replace(this.logsPath, archivePath);
-        //         this.LogInfo('Uploading log file', { LogFilePath: filePath, LogFileName: path.basename(filePath)});
-
-        //         if (this.maxLogFileUploadSize > fileSize)
-        //             this.LogWarning('Truncated log file', {LogFileName: path.basename(filePath), LogFileSize: fileSize, MaxLogFileSize: this.maxLogFileUploadSize});
-
-        //         var bufferSize=this.maxLogFileUploadSize,
-        //             chunkSize=512,
-        //             bytesRead = 0;
-
-        //         const writeStream = fs.createWriteStream(outPath);
-        //         writeStream.on('finish', () => {
-        //             if (fs.existsSync(filePath))
-        //                 fs.unlinkSync(filePath);
-        //             resolve();
-        //         });
-        //         await new Promise( (resolve, reject) => {
-        //             fs.open(filePath, 'r', async (err, fd) => {
-        //                 if (err) throw err;
-
-        //                 while (bytesRead < bufferSize) {
-        //                     if ((bytesRead + chunkSize) > bufferSize) {
-        //                         chunkSize = (bufferSize - bytesRead);
-        //                     }
-
-        //                     await new Promise( (resolve, reject) => {
-        //                         fs.read(fd, Buffer.alloc(chunkSize), 0, chunkSize, bytesRead, async (err, bytesRead, buffer) => {
-        //                             if (err) throw 'Error reading file: ' + err;
-        //                             if (!writeStream.write(buffer)) {
-        //                                 writeStream.once('drain', () => { resolve(); });
-        //                             } else {
-        //                                 process.nextTick( () => { resolve(); });
-        //                             }
-        //                         });
-        //                     });
-
-        //                     bytesRead += chunkSize;
-        //                 }
-        //                 resolve();
-        //             });
-        //         });
-
-        //         writeStream.end();
-        //     } catch (e) {
-        //         const msg = `Error uploading log file '${path}': ${e}`;
-        //         console.log(msg);
-        //         this.LogError(msg, e.stackTrace, {});
-        //     }
-        // })
     }
 }

@@ -10,7 +10,6 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { AgentLogger } from './SGAgentLogger';
-import { StepSchema } from '../domain/Step';
 import { TaskSchema } from '../domain/Task';
 
 AWS.config.apiVersions = {
@@ -197,7 +196,7 @@ export class SGUtils {
     }
 
     static RunCommand(commandString: any, options: any): Promise<any> {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             let stdout = '';
             let stderr = '';
 
@@ -295,7 +294,7 @@ export class SGUtils {
         let numTries = 0;
         let logStreamName = '';
         while (numTries < maxTries && !stateVars.runLambdaFinished) {
-            logStreamName = await new Promise((resolve, reject) => {
+            logStreamName = await new Promise((resolve) => {
                 cwl.describeLogStreams(describeLogParams, function (err, data) {
                     if (err) {
                         if (err.message != 'The specified log group does not exist.')
@@ -333,7 +332,7 @@ export class SGUtils {
         };
 
         while (true) {
-            const res: any = await new Promise<null | any>((resolve, reject) => {
+            const res: any = await new Promise<null | any>((resolve) => {
                 cwl.getLogEvents(getLogEventsParams, async function (err, data) {
                     if (err) {
                         logger.LogError('Error in GetCloudWatchLogsEvents.getLogEvents', err.stack, {
@@ -547,7 +546,7 @@ end
             logGroupName,
         };
 
-        cwl.deleteLogGroup(deleteLogParams, function (err, data) {
+        cwl.deleteLogGroup(deleteLogParams, function () {
             // if (err) {
             //     if (err.message != 'The specified log group does not exist.')
             //         reject(err);

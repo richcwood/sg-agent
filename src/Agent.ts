@@ -44,7 +44,7 @@ interface RunStepOutcome {
     failureCode?: TaskFailureCode;
     route?: string;
     signal?: string;
-    runtimeVars?: any;
+    runtimeVars?;
     stdout?: string;
     lastUpdatedId?: number;
     _teamId?: mongodb.ObjectId;
@@ -60,7 +60,7 @@ const SG_AGENT_CONFIG_FILE_NAME = 'sg.cfg';
 
 const regexStdoutRedirectFiles = RegExp('(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)', 'g');
 
-const runningProcesses: any = {};
+const runningProcesses = {};
 
 const lock = new AsyncLock({ timeout: 5000 });
 const lockConnectStomp = 'lock_connect_stomp_key';
@@ -83,7 +83,7 @@ export default class Agent {
     private rmqVhost: string;
     private stompConsumer: StompConnector;
     private inactiveAgentQueueTTL: number;
-    private tags: any = {};
+    private tags = {};
     private instanceId: mongodb.ObjectId;
     private ipAddress = '';
     private timezone = '';
@@ -107,8 +107,8 @@ export default class Agent {
     private inactivePeriodWaitTime = 0;
     private inactiveAgentJob: any;
     private agentLauncherIPCPath: string;
-    private ipcClient: any = undefined;
-    private ipcServer: any = undefined;
+    private ipcClient = undefined;
+    private ipcServer = undefined;
     private handleGeneralTasks = true;
     private maxStdoutSize = 307200; // bytes
     private maxStderrSize = 51200; // bytes
@@ -221,7 +221,7 @@ export default class Agent {
 
     async CreateAgentInAPI() {
         let agentProperties: any = {};
-        const agent_info: any = {
+        const agent_info = {
             id: this.InstanceId(),
             _teamId: this._teamId,
             machineId: this.MachineId(),
@@ -268,11 +268,11 @@ export default class Agent {
             'SGAgentProc',
             SGUtils.makeid(10),
             `sg-agent-launcher-msg-${this._teamId}`,
-            async (message, socket) => {
+            async (message) => {
                 const logMsg = 'Message from AgentLauncher';
                 this.logger.LogDebug(logMsg, message);
                 if (message.signal) {
-                    await this.SignalHandler(message.signal);
+                    await this.SignalHandler();
                 }
             }
         );
@@ -284,6 +284,18 @@ export default class Agent {
             env: this.env,
         });
 
+        await this.SetAgentProperties();
+        process.on('SIGINT', this.SignalHandler.bind(this));
+        process.on('SIGTERM', this.SignalHandler.bind(this));
+        await this.SendHeartbeat(true, false);
+        await this.ConnectStomp();
+        if (!this.runStandAlone) this.ConnectToAgentLauncher();
+        this.timeLastActive = Date.now();
+        this.CheckInactiveTime();
+        this.SendMessageToAPIAsync();
+    }
+
+    async SetAgentProperties() {
         let agentProperties: any = {};
         try {
             agentProperties = await this.RestAPICall(`agent/machineid/${this.MachineId()}`, 'GET', {
@@ -298,6 +310,7 @@ export default class Agent {
                 throw e;
             }
         }
+        this.logger.instanceId = this.instanceId.toHexString();
         this.inactiveAgentQueueTTL = agentProperties.inactiveAgentQueueTTL;
         this.stompUrl = agentProperties.stompUrl;
         this.rmqAdminUrl = agentProperties.rmqAdminUrl;
@@ -343,77 +356,62 @@ export default class Agent {
                 if ('rmqAdminUrl' in this.userConfig.debug) this.rmqAdminUrl = this.userConfig.debug.rmqAdminUrl;
             }
         }
-
-        this.logger.instanceId = this.instanceId.toHexString();
-
-        process.on('SIGINT', this.SignalHandler.bind(this));
-        process.on('SIGTERM', this.SignalHandler.bind(this));
-
-        await this.SendHeartbeat(true, false);
-
-        await this.ConnectStomp();
-
-        if (!this.runStandAlone) {
-            try {
-                this.ipcClient = new IPCClient(
-                    'SGAgentLauncherProc',
-                    `sg-agent-proc-${this._teamId}`,
-                    this.agentLauncherIPCPath,
-                    () => {
-                        this.LogError('Error connecting to agent launcher - retrying', '', {});
-                    },
-                    () => {
-                        if (!this.stopped) this.LogError(`Failed to connect to agent launcher`, '', {});
-                    },
-                    async () => {
-                        if (this.stopped) return;
-                        this.LogError(
-                            `Disconnected from agent launcher - attempting to reconnect in 10 seconds`,
-                            '',
-                            {}
-                        );
-                        for (let i = 0; i < 10; i++) {
-                            if (this.stopped) break;
-                            await SGUtils.sleep(1000);
-                        }
-                        setTimeout(async () => {
-                            try {
-                                if (!this.stopped) await this.ipcClient.ConnectIPC();
-                            } catch (e) {
-                                this.LogError(`Error connecting to agent launcher - restarting`, '', e);
-                                try {
-                                    this.RunAgentStub();
-                                } catch (e) {
-                                    this.LogError('Error starting agent launcher', '', SGUtils.errorToObj(e));
-                                }
-                            }
-                        }, 1000);
-                    }
-                );
-                await this.ipcClient.ConnectIPC();
-                await this.SendMessageToAgentStub({
-                    propertyOverrides: {
-                        instanceId: this.instanceId,
-                        apiUrl: this.apiUrl,
-                        apiPort: this.apiPort,
-                        agentLogsAPIVersion: this.agentLogsAPIVersion,
-                    },
-                    agentIPCServerPath: this.ipcServer.ipcPath,
-                });
-            } catch (e) {
-                this.LogError(`Error connecting to agent launcher - restarting`, '', e);
-                try {
-                    this.RunAgentStub();
-                } catch (e) {}
-            }
-        }
-
-        this.timeLastActive = Date.now();
-        this.CheckInactiveTime();
-        this.SendMessageToAPIAsync();
     }
 
-    async SignalHandler(signal) {
+    async ConnectToAgentLauncher() {
+        try {
+            this.ipcClient = new IPCClient(
+                'SGAgentLauncherProc',
+                `sg-agent-proc-${this._teamId}`,
+                this.agentLauncherIPCPath,
+                () => {
+                    this.LogError('Error connecting to agent launcher - retrying', '', {});
+                },
+                () => {
+                    if (!this.stopped) this.LogError(`Failed to connect to agent launcher`, '', {});
+                },
+                async () => {
+                    if (this.stopped) return;
+                    this.LogError(`Disconnected from agent launcher - attempting to reconnect in 10 seconds`, '', {});
+                    for (let i = 0; i < 10; i++) {
+                        if (this.stopped) break;
+                        await SGUtils.sleep(1000);
+                    }
+                    setTimeout(async () => {
+                        try {
+                            if (!this.stopped) await this.ipcClient.ConnectIPC();
+                        } catch (e) {
+                            this.LogError(`Error connecting to agent launcher - restarting`, '', e);
+                            try {
+                                this.RunAgentStub();
+                            } catch (e) {
+                                this.LogError('Error starting agent launcher', '', SGUtils.errorToObj(e));
+                            }
+                        }
+                    }, 1000);
+                }
+            );
+            await this.ipcClient.ConnectIPC();
+            await this.SendMessageToAgentStub({
+                propertyOverrides: {
+                    instanceId: this.instanceId,
+                    apiUrl: this.apiUrl,
+                    apiPort: this.apiPort,
+                    agentLogsAPIVersion: this.agentLogsAPIVersion,
+                },
+                agentIPCServerPath: this.ipcServer.ipcPath,
+            });
+        } catch (e) {
+            this.LogError(`Error connecting to agent launcher - restarting`, '', e);
+            try {
+                this.RunAgentStub();
+            } catch (e) {
+                // Ignore error and continue
+            }
+        }
+    }
+
+    async SignalHandler() {
         this.mainProcessInterrupted = true;
 
         await this.Stop();
@@ -448,43 +446,41 @@ export default class Agent {
         process.exit(97);
     }
 
-    async GetArtifact(artifactId: string, destPath: string, _teamId: string) {
-        return new Promise(async (resolve, reject) => {
-            const artifactPrefix = '';
-            const artifactName = '';
-            try {
-                const artifact: any = await this.RestAPICall(`artifact/${artifactId}`, 'GET');
-                const artifactPath = `${destPath}/${artifact.name}`;
-                const writer = fs.createWriteStream(artifactPath);
+    async GetArtifact(artifactId: string, destPath: string) {
+        const artifactPrefix = '';
+        const artifactName = '';
+        try {
+            const artifact = await this.RestAPICall(`artifact/${artifactId}`, 'GET');
+            const artifactPath = `${destPath}/${artifact.name}`;
+            const writer = fs.createWriteStream(artifactPath);
 
-                // console.log('GetArtifact -> url ', url, ', headers -> ', this._teamId, ', token -> ', this.token);
+            // console.log('GetArtifact -> url ', url, ', headers -> ', this._teamId, ', token -> ', this.token);
 
-                const response = await axios({
-                    url: artifact.url,
-                    method: 'GET',
-                    responseType: 'stream',
+            const response = await axios({
+                url: artifact.url,
+                method: 'GET',
+                responseType: 'stream',
+            });
+
+            const artifactSize = await new Promise((resolve) => {
+                response.data.pipe(writer).on('finish', () => {
+                    const artifactSize: number = fs.statSync(artifactPath).size;
+                    resolve(artifactSize);
                 });
+            });
 
-                const artifactSize = await new Promise(async (resolve, reject) => {
-                    response.data.pipe(writer).on('finish', () => {
-                        const artifactSize: number = fs.statSync(artifactPath).size;
-                        resolve(artifactSize);
-                    });
-                });
-
-                if (SGUtils.GetFileExt(artifact.name) == '.gz') {
-                    await SGUtils.GunzipFile(artifactPath);
-                }
-                resolve({ success: true, artifactSize });
-            } catch (e) {
-                resolve({
-                    success: false,
-                    error: SGUtils.errorToObj(e),
-                    artifactPrefix,
-                    artifactName,
-                });
+            if (SGUtils.GetFileExt(artifact.name) == '.gz') {
+                await SGUtils.GunzipFile(artifactPath);
             }
-        });
+            return { success: true, artifactSize };
+        } catch (e) {
+            return {
+                success: false,
+                error: SGUtils.errorToObj(e),
+                artifactPrefix,
+                artifactName,
+            };
+        }
     }
 
     async RestAPILogin(retryCount = 0) {
@@ -495,16 +491,11 @@ export default class Agent {
                 async () => {
                     try {
                         if (new Date().getTime() - this.tokenRefreshTime < 30000 && this.token) return;
-
                         this.token = '';
-
                         let apiUrl = this.apiUrl;
-
                         const apiPort = this.apiPort;
-
                         if (apiPort != '') apiUrl += `:${apiPort}`;
                         const url = `${apiUrl}/login/apiLogin`;
-
                         const response = await axios({
                             url,
                             method: 'POST',
@@ -517,7 +508,6 @@ export default class Agent {
                                 accessKeySecret: this.accessKeySecret,
                             },
                         });
-
                         this.tokenRefreshTime = new Date().getTime();
                         this.token = response.data.config1;
                         this.refreshToken = response.data.config2;
@@ -529,7 +519,7 @@ export default class Agent {
                         }
                     }
                 },
-                (err, ret) => {
+                (err) => {
                     if (err) {
                         retryCount += 1;
                         if (retryCount > 5) {
@@ -559,16 +549,11 @@ export default class Agent {
                 async () => {
                     try {
                         if (new Date().getTime() - this.tokenRefreshTime < 30000 && this.token) return;
-
                         this.token = '';
-
                         let apiUrl = this.apiUrl;
-
                         const apiPort = this.apiPort;
-
                         if (apiPort != '') apiUrl += `:${apiPort}`;
                         const url = `${apiUrl}/login/refreshtoken`;
-
                         const response = await axios({
                             url,
                             method: 'POST',
@@ -578,7 +563,6 @@ export default class Agent {
                                 Cookie: `Auth=${this.refreshToken};`,
                             },
                         });
-
                         this.tokenRefreshTime = new Date().getTime();
                         this.token = response.data.config1;
                         this.refreshToken = response.data.config2;
@@ -590,7 +574,7 @@ export default class Agent {
                         }
                     }
                 },
-                (err, ret) => {
+                (err) => {
                     if (err) {
                         retryCount += 1;
                         if (retryCount > 5) {
@@ -622,15 +606,11 @@ export default class Agent {
             let fullurl = '';
             try {
                 if (!this.token) await this.RestAPILogin();
-
                 let apiUrl = this.apiUrl;
                 const apiVersion = this.agentLogsAPIVersion;
-
                 const apiPort = this.apiPort;
-
                 if (apiPort != '') apiUrl += `:${apiPort}`;
                 fullurl = `${apiUrl}/api/${apiVersion}/${url}`;
-
                 const combinedHeaders = Object.assign(
                     {
                         Cookie: `Auth=${this.token};`,
@@ -660,7 +640,6 @@ export default class Agent {
                     headers: combinedHeaders,
                     data: mergedOptions.data,
                 });
-
                 return response.data.data;
             } catch (e) {
                 if (e.response && e.response.status == 404) {
@@ -680,7 +659,6 @@ export default class Agent {
                         retryWithBackoff: mergedOptions.retryWithBackoff,
                     });
                 } else {
-                    const exceptionObj = (e.response && e.response.data) || e;
                     const errorContext = Object.assign(
                         {
                             http_method: method,
@@ -734,11 +712,9 @@ export default class Agent {
                 }
             }
         }
-
         if (values.tags) {
             userConfig.tags = values.tags;
         }
-
         if (this.env != 'unittest') fs.writeFileSync(this.userConfigPath, JSON.stringify(userConfig, null, 4));
     };
 
@@ -841,7 +817,7 @@ export default class Agent {
 
     async SendDisconnectMessage() {
         try {
-            const heartbeat_info: any = {
+            const heartbeat_info = {
                 machineId: this.MachineId(),
                 ipAddress: SGUtils.getIpAddress(),
                 offline: this.offline,
@@ -903,7 +879,7 @@ export default class Agent {
             }
 
             try {
-                const ret: any = await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, 'PUT', {
+                const ret = await this.RestAPICall(`agent/heartbeat/${this.instanceId}`, 'PUT', {
                     data: heartbeat_info,
                 });
 
@@ -955,19 +931,16 @@ export default class Agent {
                         this.LogDebug('Running inactive agent job', {
                             inactiveAgentJob: this.inactiveAgentJob,
                         });
-
                         const runtimeVars: any = {};
                         if (this.inactiveAgentJob.runtimeVars)
                             Object.assign(runtimeVars, this.inactiveAgentJob.runtimeVars);
                         runtimeVars._agentId = {};
                         runtimeVars._agentId['value'] = this.InstanceId();
-
                         const data = {
                             name: `Inactive agent job - ${this.MachineId()}`,
                             runtimeVars,
                             createdBy: this.MachineId(),
                         };
-
                         this.queueAPICall.push({
                             url: `job`,
                             method: 'POST',
@@ -996,7 +969,7 @@ export default class Agent {
         // this.LogDebug('Checking message queue', {});
         let waitTimesBackoff = [1000, 5000, 10000, 20000, 30000, 60000];
         while (this.queueAPICall.length > 0) {
-            const msg: any = this.queueAPICall.shift();
+            const msg = this.queueAPICall.shift();
             try {
                 // this.LogDebug('Sending queued message', { 'request': msg });
                 await this.RestAPICall(msg.url, msg.method, {
@@ -1064,7 +1037,7 @@ export default class Agent {
             return rtVar;
         }
 
-        let runtimeVars: any = {};
+        let runtimeVars = {};
         const arrParams: string[] = line.match(/@sgo(\{[^}]*\})/gi);
         if (arrParams) {
             for (let i = 0; i < arrParams.length; i++) {
@@ -1098,7 +1071,9 @@ export default class Agent {
                                 runtimeVars = Object.assign(runtimeVars, rtVar);
                             }
                         }
-                    } catch (se) {}
+                    } catch (se) {
+                        // Ignore error and continue
+                    }
                 }
 
                 const [key, value] = Object.entries(rtVar)[0];
@@ -1138,9 +1113,8 @@ export default class Agent {
             try {
                 let lineCount = 0;
                 let bytesRead = 0;
-
                 let output = '';
-                const runtimeVars: any = {};
+                const runtimeVars = {};
                 const lastNLines: string[] = [];
                 const s = fs
                     .createReadStream(filePath)
@@ -1150,14 +1124,11 @@ export default class Agent {
                             .mapSync(function (line) {
                                 // pause the readstream
                                 s.pause();
-
                                 lineCount += 1;
-
-                                const extractRes: any = appInst.ExtractRuntimeVarsFromString(line);
-                                const rtv: any = extractRes.runtimeVars;
+                                const extractRes = appInst.ExtractRuntimeVarsFromString(line);
+                                const rtv = extractRes.runtimeVars;
                                 let newLine: string = extractRes.line;
                                 Object.assign(runtimeVars, rtv);
-
                                 if (saveOutput && newLine) {
                                     newLine = appInst.ReplaceSensitiveRuntimeVarValuesInString(
                                         newLine,
@@ -1183,7 +1154,6 @@ export default class Agent {
                                         if (lastNLines.length > appInst.numLinesInTail) lastNLines.shift();
                                     }
                                 }
-
                                 // resume the readstream
                                 s.resume();
                             })
@@ -1211,7 +1181,6 @@ export default class Agent {
         return new Promise((resolve, reject) => {
             try {
                 let lineCount = 0;
-
                 let output = '';
                 const s = fs
                     .createReadStream(filePath)
@@ -1221,7 +1190,6 @@ export default class Agent {
                             .mapSync(function (line) {
                                 // pause the readstream
                                 s.pause();
-
                                 lineCount += 1;
                                 if (line) {
                                     line = this.ReplaceSensitiveRuntimeVarValuesInString(line, task.runtimeVars);
@@ -1231,7 +1199,6 @@ export default class Agent {
                                             output = truncate(output, this.maxStderrSize) + ' (truncated)';
                                     }
                                 }
-
                                 // resume the readstream
                                 s.resume();
                             })
@@ -1251,7 +1218,7 @@ export default class Agent {
     };
 
     GetSysInfo = async () => {
-        const sysInfo: any = {};
+        const sysInfo = {};
         const procs = await sysinfo.processes();
         procs.list = procs.list
             .sort((a, b) => {
@@ -1321,8 +1288,8 @@ export default class Agent {
             try {
                 const dataStrings: string[] = data.map((m) => m.message);
                 const dataAsString = dataStrings.join('');
-                const extractRes: any = params.appInst.ExtractRuntimeVarsFromString(dataAsString);
-                const rtv: any = extractRes.runtimeVars;
+                const extractRes = params.appInst.ExtractRuntimeVarsFromString(dataAsString);
+                const rtv = extractRes.runtimeVars;
                 const rtvUpdates = {};
                 for (let indexRTV = 0; indexRTV < Object.keys(rtv).length; indexRTV++) {
                     const key = Object.keys(rtv)[indexRTV];
@@ -1331,58 +1298,8 @@ export default class Agent {
                         params.rtvCumulative[key] = rtv[key];
                     }
                 }
-
-                for (let i = 0; i < data.length; i++) {
-                    const msg = data[i].message;
-                    if (msg.startsWith('REPORT ')) {
-                        const elems: string[] = msg.split('\t');
-                        for (let j = 0; j < elems.length; j++) {
-                            const elem: string = elems[j];
-                            if (elem.startsWith('Duration: ')) {
-                                try {
-                                    params.lambdaDuration = Number(
-                                        elem.split(':').slice(1, 3).join(' ').trim().split(' ')[0]
-                                    );
-                                } catch (err) {
-                                    // continue regardless of error
-                                }
-                            } else if (elem.startsWith('Billed Duration: ')) {
-                                try {
-                                    params.lambdaBilledDuration = Number(
-                                        elem.split(':').slice(1, 3).join(' ').trim().split(' ')[0]
-                                    );
-                                } catch (err) {
-                                    // continue regardless of error
-                                }
-                            } else if (elem.startsWith('Memory Size: ')) {
-                                try {
-                                    params.lambdaMemSize = Number(
-                                        elem.split(':').slice(1, 3).join(' ').trim().split(' ')[0]
-                                    );
-                                } catch (err) {
-                                    // continue regardless of error
-                                }
-                            } else if (elem.startsWith('Max Memory Used: ')) {
-                                try {
-                                    params.lambdaMaxMemUsed = Number(
-                                        elem.split(':').slice(1, 3).join(' ').trim().split(' ')[0]
-                                    );
-                                } catch (err) {
-                                    // continue regardless of error
-                                }
-                            } else if (elem.startsWith('Init Duration: ')) {
-                                try {
-                                    params.lambdaInitDuration = Number(
-                                        elem.split(':').slice(1, 3).join(' ').trim().split(' ')[0]
-                                    );
-                                } catch (err) {
-                                    // continue regardless of error
-                                }
-                            }
-                        }
-                    }
-                }
-
+                const usageData = this.ExtractUsageDataFromLambdaLog(data);
+                params = Object.assign(params, usageData);
                 if (Object.keys(rtvUpdates).length > 0) {
                     // console.log(`****************** taskOutcomeId -> ${params.taskOutcomeId}, runtimeVars -> ${JSON.stringify(rtvUpdates)}`);
                     params.appInst.queueAPICall.push({
@@ -1392,17 +1309,14 @@ export default class Agent {
                         data: { _teamId: params._teamId, runtimeVars: rtvUpdates },
                     });
                 }
-
                 params.lastNLines = params.lastNLines.concat(dataStrings).slice(-params.appInst.numLinesInTail);
                 for (let i = 0; i < params.lastNLines.length; i++) {
                     if (Buffer.byteLength(params.lastNLines[i], 'utf8') > params.appInst.maxSizeLineInTail)
                         params.lastNLines[i] =
                             truncate(params.lastNLines[i], params.appInst.maxSizeLineInTail) + ' (truncated)';
                 }
-
                 while (true) {
                     if (dataStrings.length < 1) break;
-
                     let stdoutToUpload = '';
                     let countLinesToUpload = 0;
                     if (!params.stdoutTruncated) {
@@ -1425,7 +1339,7 @@ export default class Agent {
                         }
                     }
                     dataStrings.splice(0, countLinesToUpload);
-                    const updates: any = {
+                    const updates = {
                         _teamId: params._teamId,
                         tail: params.lastNLines,
                         stdout: stdoutToUpload,
@@ -1553,7 +1467,7 @@ export default class Agent {
         const zipFileSizeMB: number = fs.statSync(stateVars.zipFilePath).size / 1024.0 / 1024.0;
         if (zipFileSizeMB > 0) {
             const s3Path = `lambda/${task.id}`;
-            const res: any = await SGUtils.RunCommand(
+            const res = await SGUtils.RunCommand(
                 `aws s3 cp ${stateVars.zipFilePath} s3://${step.s3Bucket}/${s3Path}`,
                 {}
             );
@@ -1587,7 +1501,7 @@ export default class Agent {
             const stdoutFilePath = workingDirectory + path.sep + SGUtils.makeid(10) + '.out';
             const fileOut = fs.openSync(stdoutFilePath, 'w');
 
-            const stateVars: any = {
+            const stateVars = {
                 updateId: lastUpdatedId + 1,
                 procFinished: false,
                 stdoutAnalysisFinished: false,
@@ -1597,7 +1511,7 @@ export default class Agent {
                 runLambdaFinished: false,
             };
             const lastNLines: string[] = [];
-            const rtvCumulative: any = {};
+            const rtvCumulative = {};
             const queueTail: any[] = [];
             const _teamId: string = step._teamId;
             let handler = '';
@@ -1611,7 +1525,7 @@ export default class Agent {
             if (!step.lambdaZipfile) {
                 const msg = `${new Date().toISOString()} Creating AWS Lambda function\n`;
                 lastNLines.push(msg);
-                const updates: any = {
+                const updates = {
                     _teamId: _teamId,
                     tail: lastNLines,
                     stdout: msg,
@@ -1621,7 +1535,7 @@ export default class Agent {
                 await this.RestAPICall(`stepOutcome/${stepOutcomeId}`, 'PUT', { data: updates });
                 stateVars.updateId += 1;
 
-                const createAWSLambdaZipFileResult: any = await this.CreateAWSLambdaZipFile(
+                const createAWSLambdaZipFileResult = await this.CreateAWSLambdaZipFile(
                     step,
                     task,
                     stateVars,
@@ -1631,7 +1545,7 @@ export default class Agent {
                 handler = createAWSLambdaZipFileResult.handler;
                 createAWSLambdaZipFileResult.lambdaFileLoadedToSGAWS;
             } else {
-                const artifact: any = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, 'GET', {
+                const artifact = await this.RestAPICall(`artifact/${step.lambdaZipfile}`, 'GET', {
                     data: { _teamId },
                 });
                 lambdaCode.S3Bucket = step.s3Bucket;
@@ -1675,7 +1589,7 @@ export default class Agent {
 
             const msg = `${new Date().toISOString()} Running AWS Lambda function\n`;
             lastNLines.push(msg);
-            const updates: any = {
+            const updates = {
                 _teamId: _teamId,
                 tail: lastNLines,
                 stdout: msg,
@@ -1758,7 +1672,7 @@ export default class Agent {
                 code = 1;
             }
 
-            let outParams: any = await this.PostRunScriptProcessing(
+            let outParams = await this.PostRunScriptProcessing(
                 step,
                 task,
                 stdoutFilePath,
@@ -1839,15 +1753,12 @@ export default class Agent {
                 env: env,
                 cwd: workingDirectory,
             });
-
             runningProcesses[taskOutcomeId] = cmd;
             fnOnProcessStarted();
-
             /// called if there is an error running the script
             cmd.on('error', (err) => {
                 reject(err);
             });
-
             /// called when external process completes
             cmd.on('exit', async (code, signal) => {
                 resolve({ code, signal });
@@ -1874,7 +1785,7 @@ export default class Agent {
         rtvCumulative: any,
         lastNLines: any[],
         stateVars: any,
-        fnOnMessagesDequeued: any = undefined
+        fnOnMessagesDequeued = undefined
     ) => {
         while (true) {
             if (queueTail.length < 1) {
@@ -1890,15 +1801,13 @@ export default class Agent {
                 }
                 continue;
             }
-
             const data: string[] = queueTail.splice(0);
             try {
                 const dataAsString = data.join('\n');
-
                 // Extracts runtime variable values and pushes them to the API
                 if (!(task.target & (TaskDefTarget.ALL_AGENTS | TaskDefTarget.ALL_AGENTS_WITH_TAGS))) {
-                    const extractRes: any = this.ExtractRuntimeVarsFromString(dataAsString);
-                    const rtv: any = extractRes.runtimeVars;
+                    const extractRes = this.ExtractRuntimeVarsFromString(dataAsString);
+                    const rtv = extractRes.runtimeVars;
                     const rtvUpdates = {};
                     for (let indexRTV = 0; indexRTV < Object.keys(rtv).length; indexRTV++) {
                         const key = Object.keys(rtv)[indexRTV];
@@ -1907,16 +1816,13 @@ export default class Agent {
                             rtvCumulative[key] = rtv[key];
                         }
                     }
-
                     if (Object.keys(rtvUpdates).length > 0) {
                         await this.RestAPICall(`taskOutcome/${taskOutcomeId}`, 'PUT', {
                             data: { runtimeVars: rtvUpdates },
                         });
                     }
                 }
-
                 if (fnOnMessagesDequeued) fnOnMessagesDequeued(data);
-
                 // Updates lastNLines with the last "numLinesInTail" lines from stdout
                 lastNLines = lastNLines.concat(data).slice(-this.numLinesInTail);
                 for (let i = 0; i < lastNLines.length; i++) {
@@ -1924,7 +1830,6 @@ export default class Agent {
                         lastNLines[i] = truncate(lastNLines[i], this.maxSizeLineInTail) + ' (truncated)';
                     lastNLines[i] = this.ReplaceSensitiveRuntimeVarValuesInString(lastNLines[i], task.runtimeVars);
                 }
-
                 // Uploads stdout to the API in chunks up to a max size
                 while (true) {
                     if (data.length < 1) break;
@@ -1951,10 +1856,8 @@ export default class Agent {
                             countLinesToUpload += 1;
                         }
                     }
-
                     data.splice(0, countLinesToUpload);
-
-                    const updates: any = {
+                    const updates = {
                         tail: lastNLines,
                         stdout: stdoutToUpload,
                         status: StepStatus.RUNNING,
@@ -2006,16 +1909,13 @@ export default class Agent {
         } else if (script.scriptType == ScriptType.POWERSHELL) {
             scriptFilePath += '.ps1';
         }
-
         // console.log('script -> ', JSON.stringify(script, null, 4));
         fs.writeFileSync(scriptFilePath, SGUtils.atob(script.code));
-
         if (script.scriptType == ScriptType.SH) {
             fs.chmod(scriptFilePath, 0o0755, (err) => {
                 if (err) throw err;
             });
         }
-
         return scriptFilePath;
     }
 
@@ -2028,7 +1928,6 @@ export default class Agent {
      */
     CreateCommandString(step: StepSchema, script: any, scriptFilePath: string): string {
         let commandString = '';
-
         if (step.command) {
             commandString = step.command.trim() + ' ';
         } else {
@@ -2038,7 +1937,6 @@ export default class Agent {
         }
         commandString += scriptFilePath;
         if (step.arguments) commandString += ` ${step.arguments}`;
-
         return commandString;
     }
 
@@ -2063,13 +1961,11 @@ export default class Agent {
                 }
             queueTail.push(data);
         });
-
         tail.on('error', function (error) {
             this.LogError('Error tailing stdout file', error.stack, {
                 error: error.toString(),
             });
         });
-
         return tail;
     }
 
@@ -2080,14 +1976,13 @@ export default class Agent {
      * @returns dict with environment variables
      */
     ScriptProcessEnv(step: StepSchema, task: TaskSchema): any {
-        let env: any = Object.assign({}, process.env);
+        let env = Object.assign({}, process.env);
         if (step.variables) env = Object.assign(env, step.variables);
         env.sgAgentId = this.InstanceId();
         env.teamId = task._teamId;
         env.jobId = task._jobId;
         env.taskId = task.id;
         env.stepId = step.id;
-
         return env;
     }
 
@@ -2125,8 +2020,7 @@ export default class Agent {
             parseStdoutResult.output = '';
             parseStdoutResult.runtimeVars = {};
         }
-
-        const runtimeVars: any = {};
+        const runtimeVars = {};
         let match: string[] = [];
         while ((match = regexStdoutRedirectFiles.exec(step.arguments)) !== null) {
             const fileName = match[1];
@@ -2134,17 +2028,14 @@ export default class Agent {
             parseResult = await this.ParseScriptStdout(workingDirectory + path.sep + fileName, task, false);
             Object.assign(runtimeVars, parseResult.runtimeVars);
         }
-
         Object.assign(runtimeVars, parseStdoutResult.runtimeVars);
-
-        const outParams: any = {};
+        const outParams = {};
         outParams['runtimeVars'] = runtimeVars;
         outParams['dateCompleted'] = new Date().toISOString();
         outParams['stdout'] = parseStdoutResult.output;
         outParams['tail'] = lastNLines;
         outParams['exitCode'] = code;
         outParams['lastUpdateId'] = stateVars.updateId;
-
         return outParams;
     };
 
@@ -2169,17 +2060,13 @@ export default class Agent {
         let scriptFilePath;
         try {
             const script = step.script;
-
             scriptFilePath = this.CreateScriptFile(script, workingDirectory);
-
             const commandString = this.CreateCommandString(step, script, scriptFilePath);
-
             const stdoutFilePath = workingDirectory + path.sep + SGUtils.makeid(10) + '.out';
             const stderrFilePath = workingDirectory + path.sep + SGUtils.makeid(10) + '.err';
             const fileOut: number = fs.openSync(stdoutFilePath, 'w');
             const fileErr: number = fs.openSync(stderrFilePath, 'w');
-
-            const stateVars: any = {
+            const stateVars = {
                 updateId: lastUpdatedId + 1,
                 procFinished: false,
                 stdoutAnalysisFinished: false,
@@ -2187,11 +2074,9 @@ export default class Agent {
                 stdoutTruncated: false,
             };
             const lastNLines: string[] = [];
-            const rtvCumulative: any = {};
+            const rtvCumulative = {};
             const queueTail: any[] = [];
-
             const tail = this.StartStdOutTail(queueTail, stdoutFilePath, scriptFilePath);
-
             const spawnScriptProcessRes: SpawnScriptOutcome = await this.SpawnScriptProcess(
                 commandString,
                 fileOut,
@@ -2212,7 +2097,6 @@ export default class Agent {
                     );
                 }
             );
-
             const code: number = spawnScriptProcessRes.code;
             const signal: string = spawnScriptProcessRes.signal;
             try {
@@ -2220,17 +2104,13 @@ export default class Agent {
             } catch (e) {
                 // Ignore error
             }
-
             fs.closeSync(fileOut);
             fs.closeSync(fileErr);
-
             stateVars.procFinished = true;
             tail.unwatch();
-
             await SGUtils.sleep(100);
             while (!stateVars.stdoutAnalysisFinished) await SGUtils.sleep(100);
-
-            const outParams: any = await this.PostRunScriptProcessing(
+            const outParams = await this.PostRunScriptProcessing(
                 step,
                 task,
                 stdoutFilePath,
@@ -2239,7 +2119,6 @@ export default class Agent {
                 code,
                 workingDirectory
             );
-
             // Parse stderr
             let parseStderrResult: any = {};
             if (fs.existsSync(stderrFilePath)) {
@@ -2248,7 +2127,6 @@ export default class Agent {
                 parseStderrResult.output = '';
             }
             outParams['stderr'] = parseStderrResult.output;
-
             if (code == 0) {
                 outParams[SGStrings.status] = StepStatus.SUCCEEDED;
             } else {
@@ -2263,7 +2141,6 @@ export default class Agent {
                 }
             }
             outParams['signal'] = signal;
-
             return outParams;
         } catch (e) {
             try {
@@ -2301,7 +2178,7 @@ export default class Agent {
         for (const step of steps) {
             // Inject runtime variables in step environment variables matched on variable name
             if (step.variables) {
-                const newVariables: any = _.clone(step.variables);
+                const newVariables = _.clone(step.variables);
                 for (let e = 0; e < Object.keys(newVariables).length; e++) {
                     const eKey = Object.keys(newVariables)[e];
                     if (eKey in task.runtimeVars) {
@@ -2310,7 +2187,6 @@ export default class Agent {
                 }
                 step.variables = newVariables;
             }
-
             // Inject scripts referenced with @sgs syntax
             let newScript = SGUtils.InjectScripts(
                 this._teamId,
@@ -2318,18 +2194,14 @@ export default class Agent {
                 task.scriptsToInject,
                 this.LogError
             );
-
             // Inject runtime vars in @sgg placeholders in script
             newScript = SGUtils.InjectRuntimeVarsInScript(task, newScript, this.LogError);
             step.script.code = SGUtils.btoa_(newScript);
-
             // Inject runtime vars in script command line arguments
             step.arguments = SGUtils.InjectRuntimeVarsInArg(task, step.arguments, this.LogError);
-
             let runCode: string = SGUtils.atob(step.script.code);
             runCode = this.ReplaceSensitiveRuntimeVarValuesInString(runCode, task.runtimeVars);
             runCode = SGUtils.btoa_(runCode);
-
             let stepOutcome: any = {
                 _teamId: new mongodb.ObjectId(this._teamId),
                 _jobId: task._jobId,
@@ -2345,18 +2217,15 @@ export default class Agent {
                 dateStarted: new Date().toISOString(),
                 agentTags: this.tags,
             };
-
             if (task.target == TaskDefTarget.AWS_LAMBDA) {
                 stepOutcome._teamId = task._teamId;
                 stepOutcome.ipAddress = '0.0.0.0';
                 stepOutcome.machineId = 'lambda-executor';
             }
-
             stepOutcome = <StepOutcomeSchema>await this.RestAPICall(`stepOutcome`, 'POST', {
                 data: stepOutcome,
                 retryWithBackoff: true,
             });
-
             // console.log('Agent -> RunTask -> RunStepAsync -> step -> ', util.inspect(step, false, null));
             if (task.target == TaskDefTarget.AWS_LAMBDA) {
                 runStepOutcome = await this.RunStepAsync_Lambda(
@@ -2380,17 +2249,14 @@ export default class Agent {
             if (task.target == TaskDefTarget.AWS_LAMBDA) {
                 runStepOutcome._teamId = task._teamId;
             }
-
             this.queueAPICall.push({
                 url: `stepOutcome/${stepOutcome.id}`,
                 method: 'PUT',
                 headers: null,
                 data: runStepOutcome,
             });
-
             Object.assign(task.runtimeVars, runStepOutcome.runtimeVars);
             Object.assign(taskOutcome.runtimeVars, runStepOutcome.runtimeVars);
-
             if (runStepOutcome.status === StepStatus.INTERRUPTED || runStepOutcome.status === StepStatus.FAILED) {
                 allStepsCompleted = false;
                 break;
@@ -2404,20 +2270,13 @@ export default class Agent {
         // this.LogDebug('Running task', { 'id': task.id });
         // console.log('Agent -> RunTask -> task -> ', util.inspect(task, false, null));
         const dateStarted = new Date();
-
         const workingDirectory = process.cwd() + path.sep + SGUtils.makeid(10);
-
         if (!fs.existsSync(workingDirectory)) fs.mkdirSync(workingDirectory);
-
         try {
             let artifactsDownloadedSize = 0;
             if (task.artifacts) {
                 for (let i = 0; i < task.artifacts.length; i++) {
-                    const getArtifactResult: any = await this.GetArtifact(
-                        task.artifacts[i],
-                        workingDirectory,
-                        this._teamId
-                    );
+                    const getArtifactResult: any = await this.GetArtifact(task.artifacts[i], workingDirectory);
                     if (!getArtifactResult.success) {
                         this.logger.LogError(`Error downloading artifact`, '', {
                             _artifactId: task.artifacts[i],
@@ -2431,7 +2290,7 @@ export default class Agent {
                         } else {
                             execError = `Error downloading artifact - no artifact exists with id ${task.artifacts[i]}`;
                         }
-                        const taskOutcome: any = {
+                        const taskOutcome = {
                             status: TaskStatus.FAILED,
                             failureCode: TaskFailureCode.ARTIFACT_DOWNLOAD_ERROR,
                             execError,
@@ -2449,14 +2308,12 @@ export default class Agent {
                     artifactsDownloadedSize += getArtifactResult.artifactSize;
                 }
             }
-
             let stepsAsc: StepSchema[] = (<any>task).steps;
             // console.log('Agent -> RunTask -> stepsAsc -> beforesort -> ', util.inspect(stepsAsc, false, null));
             stepsAsc = stepsAsc.sort((a: StepSchema, b: StepSchema) =>
                 a.order > b.order ? 1 : a.order < b.order ? -1 : 0
             );
             // console.log('Agent -> RunTask -> stepsAsc -> ', util.inspect(stepsAsc, false, null));
-
             let taskOutcome: Partial<TaskOutcomeSchema> = {
                 status: TaskStatus.RUNNING,
                 dateStarted: dateStarted,
@@ -2469,16 +2326,13 @@ export default class Agent {
                 data: taskOutcome,
                 retryWithBackoff: true,
             });
-
             // console.log('taskOutcome -> POST -> ', util.inspect(taskOutcome, false, null));
             if (taskOutcome.status == TaskStatus.RUNNING) {
                 const runTaskStepsResult: { runStepOutcome: RunStepOutcome | undefined; allStepsCompleted: boolean } =
                     await this.RunTaskSteps(stepsAsc, task, workingDirectory, taskOutcome);
                 const runStepOutcome: RunStepOutcome | undefined = runTaskStepsResult.runStepOutcome;
                 const allStepsCompleted: boolean = runTaskStepsResult.allStepsCompleted;
-
                 const dateCompleted = new Date().toISOString();
-
                 if (allStepsCompleted) {
                     taskOutcome.status = TaskStatus.SUCCEEDED;
                 } else {
@@ -2490,13 +2344,11 @@ export default class Agent {
                         taskOutcome.failureCode = TaskFailureCode.AGENT_EXEC_ERROR;
                     }
                 }
-
                 const taskOutcomeUpdates: any = {};
                 taskOutcomeUpdates.status = taskOutcome.status;
                 if (taskOutcome.failureCode) taskOutcomeUpdates.failureCode = taskOutcome.failureCode;
                 taskOutcomeUpdates.dateCompleted = dateCompleted;
                 taskOutcomeUpdates.runtimeVars = taskOutcome.runtimeVars;
-
                 if (task.target == TaskDefTarget.AWS_LAMBDA) taskOutcomeUpdates._teamId = task._teamId;
                 // console.log(`???????????????????\n\ntaskOutcomeId -> ${taskOutcome.id}\n\ntaskOutcome -> ${JSON.stringify(taskOutcome)}\n\ntask -> ${JSON.stringify(task)}\n\ntaskOutcomeUpdates -> ${JSON.stringify(taskOutcomeUpdates)}`);
                 this.queueAPICall.push({
@@ -2506,7 +2358,6 @@ export default class Agent {
                     data: taskOutcomeUpdates,
                 });
                 // console.log('taskOutcome -> PUT -> ', util.inspect(taskOutcome, false, null));
-
                 delete runningProcesses[taskOutcome.id];
             }
         } finally {
@@ -2517,7 +2368,6 @@ export default class Agent {
     CompleteTaskGeneralErrorHandler = async (params: any) => {
         // todo: get the taskoutcomeid from params
         try {
-            const _teamId = params._teamId;
             const taskOutcomeId = params._taskOutcomeId;
 
             const taskOutcomeUpdates: any = { runtimeVars: { route: 'fail' } };
@@ -2551,6 +2401,7 @@ export default class Agent {
             }
         } catch (e) {
             if (e.name && e.name == 'ArtifactDownloadError') {
+                // Ignore ArtifactDownloadError
             } else {
                 this.LogError('Error in CompleteTask', e.stack, {
                     error: e.toString(),
@@ -2571,17 +2422,14 @@ export default class Agent {
                 await this.LogWarning('Version update running - skipping this update', {});
                 return;
             }
-
             if (this.stopping) {
                 await this.LogWarning('Agent stopping - skipping this update', {});
                 return;
             }
-
             if (params.targetVersion && params.reportedVersion) {
                 if (params.targetVersion == params.reportedVersion || this.runStandAlone) {
                     return;
                 }
-
                 this.updating = true;
                 await this.LogDebug('Update Agent version message received', {
                     msgKey,
@@ -2597,19 +2445,16 @@ export default class Agent {
                 await this.LogWarning('Updating Agent - shutting down', {});
                 process.exit(96);
             }
-
             if (params.tags) {
                 await this.LogDebug('Update tags message received', { msgKey, params });
                 this.tags = params.tags;
                 this.updateUserConfigValues({ tags: this.tags });
             }
-
             if (params.propertyOverrides) {
                 await this.LogDebug('Update property overrides message received', {
                     msgKey,
                     params,
                 });
-
                 // await cb(true, msgKey);
                 await this.UpdatePropertyOverrides(params.propertyOverrides, 'server');
                 this.updateUserConfigValues({
@@ -2618,7 +2463,6 @@ export default class Agent {
                 await this.SendHeartbeat(false, true);
                 await this.SendMessageToAgentStub(params);
             }
-
             if (params.interruptTask) {
                 await this.LogDebug('Interrupt task message received', {
                     msgKey,
@@ -2632,8 +2476,8 @@ export default class Agent {
                     procToInterrupt.kill();
                     // console.log('Task interrupted');
                 } else {
-                    const runtimeVars: any = { route: { value: 'interrupt' } };
-                    const taskOutcomeUpdate: any = {
+                    const runtimeVars = { route: { value: 'interrupt' } };
+                    const taskOutcomeUpdate = {
                         status: TaskStatus.INTERRUPTED,
                         runtimeVars: runtimeVars,
                     };
@@ -2645,7 +2489,6 @@ export default class Agent {
                     });
                 }
             }
-
             if (params.stopAgent) {
                 this.stopping = true;
                 await this.LogDebug('Stop Agent message received', { msgKey, params });
@@ -2663,7 +2506,6 @@ export default class Agent {
                 this.offline = true;
                 await this.SendDisconnectMessage();
             }
-
             // await cb(true, msgKey);
         } catch (e) {
             this.LogError(`Error in Update`, e.stack, { error: e.toString() });
@@ -2674,7 +2516,6 @@ export default class Agent {
 
     async UpdatePropertyOverrides(propertyOverrides: any, source: string) {
         if (!propertyOverrides) return;
-
         for (let i = 0; i < Object.keys(propertyOverrides).length; i++) {
             const key = Object.keys(propertyOverrides)[i];
             if (source == 'debug' || this.userConfigurableProperties.indexOf(key) >= 0) {
@@ -2699,7 +2540,6 @@ export default class Agent {
 
     async CheckStompConnection() {
         if (this.stopped) return;
-
         // this.LogDebug('Starting CheckStompConnection', {});
         if (
             !(await this.stompConsumer.IsConnected(
@@ -2717,7 +2557,6 @@ export default class Agent {
 
     OnRabbitMQDisconnect = async () => {
         if (this.stopped) return;
-
         lock.acquire(
             lockConnectStomp,
             async () => {
@@ -2731,7 +2570,7 @@ export default class Agent {
                     await this.ConnectStomp();
                 }
             },
-            (err, ret) => {
+            (err) => {
                 if (err) {
                     this.LogError('Error in OnRabbitMQDisconnect', err.stack, {
                         error: err.toString(),
@@ -2791,7 +2630,6 @@ export default class Agent {
     async ConnectAgentWorkQueuesStomp() {
         const exchange = SGStrings.GetTeamExchangeName(this._teamId);
         const agentQueue = SGStrings.GetAgentQueue(this._teamId, this.instanceId.toHexString());
-
         // Queue to receive version update messages
         await this.stompConsumer.ConsumeQueue(
             SGStrings.GetAgentUpdaterQueue(this._teamId, this.instanceId.toHexString()),
@@ -2803,7 +2641,6 @@ export default class Agent {
             SGStrings.GetTeamRoutingPrefix(this._teamId),
             this.inactiveAgentQueueTTL
         );
-
         // Queue to receive messages sent to this agent
         await this.stompConsumer.ConsumeQueue(
             agentQueue,
@@ -2818,7 +2655,7 @@ export default class Agent {
     }
 
     async RunAgentStub() {
-        const commandString: any = process.cwd() + '/sg-agent-launcher';
+        const commandString = process.cwd() + '/sg-agent-launcher';
         try {
             spawn(commandString, [], { stdio: 'pipe', shell: true });
             process.exit();
@@ -2830,15 +2667,14 @@ export default class Agent {
     async GetCronTab() {
         const commandString = 'crontab -l';
         const args = [];
-        return new Promise<null | any>((resolve, reject) => {
+        return new Promise<null | any>((resolve) => {
             try {
                 let stdout = '';
                 // this.LogDebug('GetCronTab: ' + commandString + ' ' + args, {});
-                const cmd: any = spawn(commandString, args, {
+                const cmd = spawn(commandString, args, {
                     stdio: 'pipe',
                     shell: true,
                 });
-
                 cmd.stdout.on('data', (data) => {
                     try {
                         // this.LogDebug('GetCronTab on.stdout.data', { data: data.toString() });
@@ -2850,7 +2686,6 @@ export default class Agent {
                         resolve(null);
                     }
                 });
-
                 cmd.on('exit', (code) => {
                     try {
                         resolve({ code: code, stdout: stdout });
