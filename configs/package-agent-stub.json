@@ -1,0 +1,13 @@
+{
+  "name": "sg-agent-launcher",
+  "version": "1.0.0",
+  "description": "SaaSGlue agent launcher",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "pkg": {
+    "assets": [
+      "default.json"
+    ]
+  }
+}
