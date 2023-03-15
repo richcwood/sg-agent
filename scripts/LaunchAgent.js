@@ -11,7 +11,6 @@ process.on('unhandledRejection', (reason, p) => {
 
 (async () => {
     try {
-        console.log(config);
         let env = config.get('env');
         let apiUrl = config.get('apiUrl');
         let apiPort = config.get('apiPort');
@@ -44,7 +43,6 @@ process.on('unhandledRejection', (reason, p) => {
         let agentInstance = new Agent_1.default(params);
         await agentInstance.Init();
     } catch (e) {
-        console.log(e);
         console.log(`Error in LaunchAgent: "${JSON.stringify(e, null, 4)}"`);
     }
 })();
