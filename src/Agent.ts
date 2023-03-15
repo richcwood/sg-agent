@@ -58,7 +58,7 @@ interface SpawnScriptOutcome {
     signal: string;
 }
 
-const version = 'v0.0.81';
+const version = 'v0.0.82';
 const SG_AGENT_CONFIG_FILE_NAME = 'sg.cfg';
 
 const regexStdoutRedirectFiles = RegExp('(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)', 'g');
