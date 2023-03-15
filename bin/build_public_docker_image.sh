@@ -12,7 +12,7 @@ BUILD_OUT_PATH="deploy/docker/agent/prod"
 BUILD_TARGET_PLATFORMS="node16-$PLATFORM"
 
 npm run build
-cp $BUILD_CONFIG_PATH/packagejson ./dist/pkg_agent_stub/
+cp $BUILD_CONFIG_PATH/package.json ./dist/pkg_agent_stub/
 cp $BUILD_CONFIG_PATH/default.json ./dist/pkg_agent_stub/
 node ./scripts/BuildAgentStub.js $BUILD_OUT_PATH $BUILD_TARGET_PLATFORMS
 

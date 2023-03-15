@@ -18,6 +18,9 @@ process.on('unhandledRejection', (reason, p) => {
         let teamId = config.get('teamId');
         let agentLogsAPIVersion = config.get('agentLogsAPIVersion');
 
+        let machineId = undefined;
+        if (config.has('machineId')) machineId = config.get('machineId');
+
         let logDest = 'console';
         if (config.has('logDest')) {
             logDest = config.get('logDest');
@@ -33,6 +36,8 @@ process.on('unhandledRejection', (reason, p) => {
             _teamId: teamId,
             runStandAlone: true,
         };
+
+        if (machineId) params['machineId'] = machineId;
 
         const Agent_1 = require('../dist/Agent');
         let agentInstance = new Agent_1.default(params);

@@ -38,6 +38,7 @@ import { LambdaUtils } from './shared/LambdaUtils';
 import { SGStrings } from './shared/SGStrings';
 import { SGUtils } from './shared/SGUtils';
 import { StompConnector } from './shared/StompLib';
+import { ECONNREFUSED } from 'constants';
 
 interface RunStepOutcome {
     status: StepStatus;
@@ -57,7 +58,7 @@ interface SpawnScriptOutcome {
     signal: string;
 }
 
-const version = 'v0.0.81';
+const version = 'v0.0.82';
 const SG_AGENT_CONFIG_FILE_NAME = 'sg.cfg';
 
 const regexStdoutRedirectFiles = RegExp('(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)', 'g');
@@ -621,7 +622,13 @@ export default class Agent {
                     mergedOptions.headers
                 );
 
-                // this.logger.LogDebug(`RestAPICall`, {fullurl, method, combinedHeaders, data, token: this.token});
+                // this.logger.LogDebug(`RestAPICall`, {
+                //     fullurl,
+                //     method,
+                //     combinedHeaders,
+                //     data: mergedOptions.data,
+                //     token: this.token,
+                // });
                 // console.log(
                 //     'Agent RestAPICall -> url ',
                 //     fullurl,
@@ -661,16 +668,20 @@ export default class Agent {
                         retryWithBackoff: mergedOptions.retryWithBackoff,
                     });
                 } else {
+                    const errno = e.errno || null;
+                    const code = e.code || null;
                     const errorContext = Object.assign(
                         {
                             http_method: method,
                             url: fullurl,
                             data: mergedOptions.data,
+                            errno: errno,
+                            code: code,
                         },
                         e.cause
                     );
                     const status = e.response && e.response.status;
-                    if (mergedOptions.retryWithBackoff && !status) {
+                    if (code == 'ECONNREFUSED' || (mergedOptions.retryWithBackoff && !status)) {
                         const waitTime = waitTimesBackoff.shift() || 60000;
                         this.LogError(
                             `Error sending message to API - retrying`,
@@ -790,25 +801,25 @@ export default class Agent {
         ipc.disconnect('SGAgentLauncherProc');
     }
 
-    async LogError(msg: string, stack: string, values: any) {
+    LogError = async (msg: string, stack: string, values: any) => {
         if (this.logger) await this.logger.LogError(msg, stack, values);
         else console.log(msg, stack, util.inspect(values, false, null));
-    }
+    };
 
-    async LogWarning(msg: string, values: any) {
+    LogWarning = async (msg: string, values: any) => {
         if (this.logger) await this.logger.LogWarning(msg, values);
         else console.log(msg, util.inspect(values, false, null));
-    }
+    };
 
-    async LogInfo(msg: string, values: any) {
+    LogInfo = async (msg: string, values: any) => {
         if (this.logger) await this.logger.LogInfo(msg, values);
         else console.log(msg, util.inspect(values, false, null));
-    }
+    };
 
-    async LogDebug(msg: string, values: any) {
+    LogDebug = async (msg: string, values: any) => {
         if (this.logger) await this.logger.LogDebug(msg, values);
         else console.log(msg, util.inspect(values, false, null));
-    }
+    };
 
     async SendMessageToAgentStub(params) {
         if (!this.runStandAlone) {

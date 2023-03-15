@@ -11,7 +11,7 @@ PLATFORM=$4
 
 # Valid platforms: macos, linux, win-x64
 
-BUILD_OUT_PATH="deploy/docker/agent/dev/Agent$SUFFIX"
+BUILD_OUT_PATH="deploy/docker/agent/dev/Agent_$SUFFIX"
 BUILD_TARGET_PLATFORMS="node16-$PLATFORM"
 
 npm run build
