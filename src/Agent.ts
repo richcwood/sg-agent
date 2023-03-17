@@ -38,7 +38,7 @@ import { LambdaUtils } from './shared/LambdaUtils';
 import { SGStrings } from './shared/SGStrings';
 import { SGUtils } from './shared/SGUtils';
 import { StompConnector } from './shared/StompLib';
-import { ECONNREFUSED } from 'constants';
+import { ECONNREFUSED, ECONNRESET } from 'constants';
 
 interface RunStepOutcome {
     status: StepStatus;
@@ -58,7 +58,7 @@ interface SpawnScriptOutcome {
     signal: string;
 }
 
-const version = 'v0.0.82';
+const version = 'v0.0.83';
 const SG_AGENT_CONFIG_FILE_NAME = 'sg.cfg';
 
 const regexStdoutRedirectFiles = RegExp('(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)', 'g');
@@ -681,7 +681,7 @@ export default class Agent {
                         e.cause
                     );
                     const status = e.response && e.response.status;
-                    if (code == 'ECONNREFUSED' || (mergedOptions.retryWithBackoff && !status)) {
+                    if (code == 'ECONNREFUSED' || code == 'ECONNRESET' || (mergedOptions.retryWithBackoff && !status)) {
                         const waitTime = waitTimesBackoff.shift() || 60000;
                         this.LogError(
                             `Error sending message to API - retrying`,
