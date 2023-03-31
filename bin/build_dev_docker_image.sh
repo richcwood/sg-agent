@@ -15,9 +15,9 @@ BUILD_OUT_PATH="deploy/docker/agent/dev/Agent_$SUFFIX"
 BUILD_TARGET_PLATFORMS="node16-$PLATFORM"
 
 npm run build
-cp $BUILD_CONFIG_PATH/package-agent-stub.json ./dist/pkg_agent_stub/packge.json
+cp ./configs/package-agent-stub.json ./dist/pkg_agent_stub/packge.json
 cp $BUILD_CONFIG_PATH/default.json ./dist/pkg_agent_stub/
-cp $BUILD_CONFIG_PATH/package-agent.json ./dist/pkg_agent/package.json
+cp ./configs/package-agent.json ./dist/pkg_agent/package.json
 cp $BUILD_CONFIG_PATH/default.json ./dist/pkg_agent/
 node ./scripts/BuildAgentStub.js $BUILD_OUT_PATH $BUILD_TARGET_PLATFORMS
 node ./scripts/BuildAgent.js $BUILD_OUT_PATH $BUILD_TARGET_PLATFORMS

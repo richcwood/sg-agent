@@ -17,6 +17,7 @@ const waitForAgentCreateMaxRetries = 20;
 const userConfigPath: string = SGUtils.getConfigFilePath();
 
 export default class AgentStub {
+    private appName: string;
     public logLevel: any = LogLevel.WARNING;
     private logger: AgentLogger;
     private rootPath: string;
@@ -31,6 +32,7 @@ export default class AgentStub {
     private agentProc: any = undefined;
 
     constructor(private params: any) {
+        this.appName = 'AgentStub';
         this.apiUrl = params.apiUrl;
         this.env = params.env;
 
@@ -222,7 +224,11 @@ export default class AgentStub {
         this._teamId = response.data.config3;
     }
 
-    async RestAPICall(url: string, method: string, headers: any = {}, data: any = {}) {
+    async RestAPICall(url: string, method: string, options = {}) {
+        const mergedOptions = {
+            ...{ headers: {}, data: {}, retryWithBackoff: false },
+            ...options,
+        };
         let fullurl = '';
         try {
             if (!this.params.token) await this.RestAPILogin();
@@ -239,16 +245,15 @@ export default class AgentStub {
                     Cookie: `Auth=${this.params.token};`,
                     _teamId: this._teamId,
                 },
-                headers
+                mergedOptions.headers
             );
 
             // console.log('RestAPICall -> url ', url, ', method -> ', method, ', headers -> ', JSON.stringify(combinedHeaders, null, 4), ', data -> ', JSON.stringify(data, null, 4), ', token -> ', this.params.token);
             this.logger.LogDebug(`RestAPICall`, {
-                fullurl,
+                url: fullurl,
                 method,
-                combinedHeaders,
-                data,
-                token: this.params.token,
+                headers: combinedHeaders,
+                data: mergedOptions.data,
             });
 
             const response = await axios({
@@ -256,7 +261,7 @@ export default class AgentStub {
                 method: method,
                 responseType: 'text',
                 headers: combinedHeaders,
-                data: data,
+                data: mergedOptions.data,
             });
 
             if (_.isArray(response.headers['set-cookie']) && response.headers['set-cookie'].length > 0) {
@@ -277,7 +282,7 @@ export default class AgentStub {
                 error.response.data.errors[0].description == 'The access token expired'
             ) {
                 await this.RefreshAPIToken();
-                return this.RestAPICall(url, method, headers, data);
+                return this.RestAPICall(url, method, { headers: mergedOptions.headers, data: mergedOptions.data });
             } else {
                 let newError: any = { config: error.config };
                 if (error.response) {
@@ -381,7 +386,7 @@ export default class AgentStub {
                 let url = `agentDownload/agent/${this.MachineId()}/${this.params.agentPlatform}`;
                 if (this.params.agentArch != '') url += `/${this.params.agentArch}`;
 
-                const agentDownloadUrl = await this.RestAPICall(url, 'GET', { _teamId: this._teamId }, null);
+                const agentDownloadUrl = await this.RestAPICall(url, 'GET', { headers: { _teamId: this._teamId } });
                 this.logger.LogDebug(`Agent download url`, { url, agentDownloadUrl });
                 return agentDownloadUrl;
                 break;

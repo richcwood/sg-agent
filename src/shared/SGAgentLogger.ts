@@ -323,7 +323,11 @@ export class AgentLogger {
             form.append('buffer', Buffer.alloc(10));
             form.append('logFile', file);
 
-            await this.agent.RestAPICall('agentlog', 'POST', form.getHeaders(), form);
+            const headers = form.getHeaders();
+            await this.agent.RestAPICall('agentlog', 'POST', {
+                headers,
+                data: form,
+            });
 
             if (fs.existsSync(compressedFilePath)) {
                 fs.unlinkSync(compressedFilePath);
