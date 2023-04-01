@@ -29,7 +29,7 @@ export default class AgentStub {
     private machineId: string = undefined;
     private apiUrl: string = undefined;
     private _teamId: string;
-    private agentProc: any = undefined;
+    private processStopped = false;
 
     constructor(private params: any) {
         this.appName = 'AgentStub';
@@ -144,6 +144,8 @@ export default class AgentStub {
 
     async SignalHandler(signal) {
         try {
+            this.processStopped = true;
+            this.ipcServer.Stop();
             const params: any = { signal: signal };
             this.logger.LogDebug(`Sending message to agent`, params);
             await ipc.of.SGAgentProc.emit(`sg-agent-launcher-msg-${this._teamId}`, params);
@@ -340,32 +342,14 @@ export default class AgentStub {
                     commandString,
                     args,
                 });
-                this.agentProc = spawn(commandString, args, {
+                const agentProc = spawn(commandString, args, {
                     stdio: 'inherit',
                     shell: true,
                 });
 
-                // this.agentProc.stdout.on('data', (data) => {
-                //     try {
-                //         // this.logger.LogError('AgentStub command stdout: ' + data, null, {});
-                //         console.log(`agent msg: ${data.toString()}`);
-                //     } catch (e) {
-                //         this.logger.LogError('Error handling stdout: ' + e.message, e.stack, {});
-                //     }
-                // });
-
-                // cmd.stderr.on('data', (data) => {
-                //     try {
-                //         this.logger.LogError('Error running command in AgentLauncher: ' + data, null, {});
-                //         // console.log(`agent err: ${data.toString()}`);
-                //     } catch (e) {
-                //         this.logger.LogError('Error handling stderr: ' + e.message, e.stack, {});
-                //     }
-                // });
-
-                this.agentProc.on('exit', (code) => {
+                agentProc.on('exit', async (exitCode, signalCode) => {
                     try {
-                        resolve({ code: code });
+                        resolve({ code: exitCode, signal: signalCode });
                     } catch (e) {
                         this.logger.LogError('Error handling script exit', e.stack, {
                             error: e.toString(),
@@ -467,7 +451,7 @@ export default class AgentStub {
                     logMsg = 'Updating and restarting agent';
                     this.logger.LogWarning(logMsg, {});
                     if (fs.existsSync(this.agentPath)) fs.unlinkSync(this.agentPath);
-                } else if (res.code == 97) {
+                } else if (res.code == 97 || this.processStopped) {
                     process.exit();
                 } else {
                     logMsg = `Agent stopped (${util.inspect(res, false, null)}) - restarting`;

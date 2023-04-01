@@ -11,6 +11,10 @@ class IPCServer {
         ipc.serve(this.ipcPath, () => ipc.server.on(channel, cb));
         ipc.server.start();
     }
+
+    Stop() {
+        ipc.server.stop();
+    }
 }
 
 class IPCClient {
