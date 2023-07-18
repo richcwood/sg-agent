@@ -1981,7 +1981,7 @@ export default class Agent {
                 stepOutcome.ipAddress = '0.0.0.0';
                 stepOutcome.machineId = 'lambda-executor';
             }
-            stepOutcome = <StepOutcomeSchema>await this.RestAPICall(`stepOutcome`, 'POST', {
+            stepOutcome = <StepOutcomeSchema>await this.RestAPICall(`stepoutcome`, 'POST', {
                 data: stepOutcome,
                 retryWithBackoff: true,
             });
