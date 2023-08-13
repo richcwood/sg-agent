@@ -38,6 +38,7 @@ import { LambdaUtils } from './shared/LambdaUtils';
 import { SGStrings } from './shared/SGStrings';
 import { SGUtils } from './shared/SGUtils';
 import { StompConnector } from './shared/StompLib';
+import { GetWindowsScheduledTasks } from './shared/TaskScheduler';
 import { ECONNREFUSED, ECONNRESET } from 'constants';
 
 interface RunStepOutcome {
@@ -58,7 +59,7 @@ interface SpawnScriptOutcome {
     signal: string;
 }
 
-const version = 'v0.0.85';
+const version = 'v0.0.86';
 const SG_AGENT_CONFIG_FILE_NAME = 'sg.cfg';
 
 const regexStdoutRedirectFiles = RegExp('(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)', 'g');
@@ -883,12 +884,14 @@ export default class Agent {
                 heartbeat_info['sysInfo'] = sysInfo;
             }
 
-            let cron: any;
             if (process.platform.indexOf('darwin') >= 0 || process.platform.indexOf('linux') >= 0) {
-                cron = await this.GetCronTab();
+                const cron = await this.GetCronTab();
                 if (cron && cron.stdout) {
                     heartbeat_info.cron = cron.stdout;
                 }
+            } else if (process.platform.indexOf('win') >= 0) {
+                const winTasks = await GetWindowsScheduledTasks(this.logger);
+                heartbeat_info.winTasks = winTasks;
             }
 
             try {
