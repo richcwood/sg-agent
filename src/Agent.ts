@@ -2029,7 +2029,8 @@ export default class Agent {
         // this.LogDebug('Running task', { 'id': task.id });
         // console.log('Agent -> RunTask -> task -> ', util.inspect(task, false, null));
         const dateStarted = new Date();
-        const workingDirectory = process.cwd() + path.sep + SGUtils.makeid(10);
+        let workingDirectory = process.cwd() + path.sep + SGUtils.makeid(10);
+        if (task.workingDirectory) workingDirectory = task.workingDirectory;
         if (!fs.existsSync(workingDirectory)) fs.mkdirSync(workingDirectory);
         try {
             let artifactsDownloadedSize = 0;
@@ -2120,7 +2121,7 @@ export default class Agent {
                 delete runningProcesses[taskOutcome.id];
             }
         } finally {
-            this.RemoveFolder(workingDirectory, 0);
+            if (!task.workingDirectory) this.RemoveFolder(workingDirectory, 0);
         }
     };
 

@@ -47,4 +47,6 @@ export class TaskSchema {
     scriptsToInject?: any;
 
     autoRestart: boolean;
+
+    workingDirectory?: string;
 }
