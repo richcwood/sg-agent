@@ -11,7 +11,7 @@ let FileMatchesSkipPattern = (fileName) => {
 
 export let GetWindowsScheduledTasks = async (fnLogError: any) => {
     let tasks = [];
-    const tasksDirectory = `${process.env.HOMEDRIVE}/Windows/System32/Tasks/`;
+    const tasksDirectory = `${process.env.SystemRoot}/System32/Tasks/`;
     return new Promise((resolve) => {
         fs.readdir(tasksDirectory, async (err, files: string[]) => {
             if (err) {
