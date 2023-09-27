@@ -1,0 +1,11 @@
+{
+  "apiUrl": "http://192.168.10.26",
+  "apiPort": "3000",
+  "agentLogsAPIVersion": "v0",
+  "agentPlatform": "win",
+  "agentArch": "x64",
+  "logDest": "console",
+  "logLevel": 10,
+  "env": "debug",
+  "teamId": "5de95c0453162e8891f5a830"
+}
