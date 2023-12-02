@@ -45,6 +45,95 @@ export class SGUtils {
         return e;
     }
 
+    static FindClosingBracket(input: string, startIndex: number): number {
+        const stack: number[] = [];
+        let i: number;
+
+        for (i = startIndex; i < input.length; i++) {
+            const char = input[i];
+
+            if (char === '{') {
+                stack.push(i); // Save the index of the opening bracket
+            } else if (char === '}') {
+                if (stack.length === 0) {
+                    // No matching opening bracket
+                    return -1;
+                } else {
+                    stack.pop(); // Matched with a corresponding opening bracket
+                    if (stack.length === 0) {
+                        // Found the closing bracket for the initially provided opening bracket
+                        return i;
+                    }
+                }
+            }
+        }
+
+        // If the loop completes without finding a matching closing bracket
+        return -1;
+    }
+
+    static FindNextSGO(line: string, startIndex: number): { sgoString: string; endIndex: number } | null {
+        let sgoStartIndex = line.indexOf('@sgo{', startIndex);
+        if (sgoStartIndex === -1) return null;
+        sgoStartIndex += 4;
+        const sgoEndIndex = SGUtils.FindClosingBracket(line, sgoStartIndex);
+        if (sgoEndIndex === -1) return null;
+        return { sgoString: line.slice(sgoStartIndex, sgoEndIndex + 1), endIndex: sgoEndIndex };
+    }
+
+    static ExtractRuntimeVarsFromString(line: string) {
+        function fnRtVar(k, v) {
+            const rtVar = {};
+            if (k.startsWith('<<') && k.endsWith('>>')) {
+                k = k.substring(2, k.length - 2);
+                rtVar[k] = { sensitive: true };
+            } else if (k != 'route') {
+                rtVar[k] = { sensitive: false };
+            } else {
+                rtVar[k] = {};
+            }
+            rtVar[k]['value'] = v;
+
+            return rtVar;
+        }
+
+        let runtimeVars = {};
+        let findNextSGOResult = SGUtils.FindNextSGO(line, 0);
+        while (findNextSGOResult) {
+            const sgoString = findNextSGOResult['sgoString'];
+            const sgoStringEndIndex = findNextSGOResult['endIndex'];
+            const sgoObject = JSON.parse(sgoString);
+            const [k, v] = Object.entries(sgoObject)[0];
+            const sgoValueAsString: string = JSON.stringify(v);
+            const rtVar = fnRtVar(k, sgoValueAsString);
+            runtimeVars = Object.assign(runtimeVars, rtVar);
+
+            const [key, value] = Object.entries(rtVar)[0];
+            if (value['sensitive']) {
+                const newVal = sgoString.replace(sgoValueAsString, `**${key}**`);
+                line = line.replace(sgoString, newVal);
+            }
+
+            findNextSGOResult = SGUtils.FindNextSGO(line, sgoStringEndIndex);
+        }
+
+        return { runtimeVars, line };
+    }
+
+    static ReplaceSensitiveRuntimeVarValuesInString(line: string, rtVars: any) {
+        let newLine: string = line;
+        const keys = Object.keys(rtVars);
+        for (let i = 0; i < keys.length; ++i) {
+            const k = keys[i];
+            const v = rtVars[k];
+            if (v['sensitive']) {
+                newLine = newLine.replace(RegExp(v['value'], 'g'), `**${k}**`);
+            }
+        }
+
+        return newLine;
+    }
+
     static InjectScripts(_teamId: string, script: string, scriptsToInject: any, fnLogError: any): string {
         const arrScriptsToInject: string[] = script.match(/@sgs?(\([^)]*\))/gi);
         if (arrScriptsToInject) {

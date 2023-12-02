@@ -59,7 +59,7 @@ interface SpawnScriptOutcome {
     signal: string;
 }
 
-const version = 'v0.0.86';
+const version = 'v0.0.87';
 const SG_AGENT_CONFIG_FILE_NAME = 'sg.cfg';
 
 const regexStdoutRedirectFiles = RegExp('(?<=\\>)(?<!2\\>)(?:\\>| )*([\\w\\.]+)', 'g');
@@ -1037,86 +1037,6 @@ export default class Agent {
         }, 1000);
     }
 
-    ExtractRuntimeVarsFromString(line: string) {
-        function fnRtVar(k, v) {
-            const rtVar = {};
-            if (k.startsWith('<<') && k.endsWith('>>')) {
-                k = k.substring(2, k.length - 2);
-                rtVar[k] = { sensitive: true };
-            } else if (k != 'route') {
-                rtVar[k] = { sensitive: false };
-            } else {
-                rtVar[k] = {};
-            }
-            rtVar[k]['value'] = v;
-
-            return rtVar;
-        }
-
-        let runtimeVars = {};
-        const arrParams: string[] = line.match(/@sgo(\{[^}]*\})/gi);
-        if (arrParams) {
-            for (let i = 0; i < arrParams.length; i++) {
-                let rtVar;
-                let rawValue;
-                try {
-                    const newValJson = arrParams[i].substring(4);
-                    const newVal = JSON.parse(newValJson);
-                    const [key, value] = Object.entries(newVal)[0];
-                    rawValue = value;
-                    rtVar = fnRtVar(key, value);
-                    runtimeVars = Object.assign(runtimeVars, rtVar);
-                } catch (e) {
-                    try {
-                        if (e.message.indexOf('Unexpected token \\') >= 0) {
-                            const newValJson = arrParams[i].substring(4).replace(/\\+"/g, '"');
-                            const newVal = JSON.parse(newValJson);
-                            const [key, value] = Object.entries(newVal)[0];
-                            rawValue = value;
-                            rtVar = fnRtVar(key, value);
-                            runtimeVars = Object.assign(runtimeVars, rtVar);
-                        } else {
-                            const re = /{['"]?([\w-]+)['"]?:[ '"]+([^,'"]+)['"]}/g;
-                            const s = arrParams[i].substring(4);
-                            let m;
-                            while ((m = re.exec(s)) != null) {
-                                const key = m[1].trim();
-                                const val = m[2].trim();
-                                rawValue = val;
-                                rtVar = fnRtVar(key, val);
-                                runtimeVars = Object.assign(runtimeVars, rtVar);
-                            }
-                        }
-                    } catch (se) {
-                        // Ignore error and continue
-                    }
-                }
-
-                const [key, value] = Object.entries(rtVar)[0];
-                if (value['sensitive']) {
-                    const newVal = arrParams[i].replace(rawValue, `**${key}**`);
-                    line = line.replace(arrParams[i], newVal);
-                }
-            }
-        }
-
-        return { runtimeVars, line };
-    }
-
-    ReplaceSensitiveRuntimeVarValuesInString(line: string, rtVars: any) {
-        let newLine: string = line;
-        const keys = Object.keys(rtVars);
-        for (let i = 0; i < keys.length; ++i) {
-            const k = keys[i];
-            const v = rtVars[k];
-            if (v['sensitive']) {
-                newLine = newLine.replace(RegExp(v['value'], 'g'), `**${k}**`);
-            }
-        }
-
-        return newLine;
-    }
-
     ParseScriptStdout = async (
         filePath: string,
         task: any,
@@ -1134,12 +1054,12 @@ export default class Agent {
             const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
             for await (const line of rl) {
                 lineCount += 1;
-                const extractRes = this.ExtractRuntimeVarsFromString(line);
+                const extractRes = SGUtils.ExtractRuntimeVarsFromString(line);
                 const rtv = extractRes.runtimeVars;
                 let newLine: string = extractRes.line;
                 Object.assign(runtimeVars, rtv);
                 if (saveOutput && newLine) {
-                    newLine = this.ReplaceSensitiveRuntimeVarValuesInString(newLine, task.runtimeVars);
+                    newLine = SGUtils.ReplaceSensitiveRuntimeVarValuesInString(newLine, task.runtimeVars);
                     const strLenBytes = Buffer.byteLength(newLine, 'utf8');
                     bytesRead += strLenBytes;
                     if (bytesRead > stdoutBytesAlreadyProcessed) {
@@ -1180,7 +1100,7 @@ export default class Agent {
             for await (let line of rl) {
                 lineCount += 1;
                 if (line) {
-                    line = this.ReplaceSensitiveRuntimeVarValuesInString(line, task.runtimeVars);
+                    line = SGUtils.ReplaceSensitiveRuntimeVarValuesInString(line, task.runtimeVars);
                     if (Buffer.byteLength(output, 'utf8') < this.maxStderrSize) {
                         output += `${line}\n`;
                         if (Buffer.byteLength(output, 'utf8') > this.maxStderrSize) {
@@ -1566,7 +1486,7 @@ export default class Agent {
                 const dataAsString = data.join('\n');
                 // Extracts runtime variable values and pushes them to the API
                 if (!(task.target & (TaskDefTarget.ALL_AGENTS | TaskDefTarget.ALL_AGENTS_WITH_TAGS))) {
-                    const extractRes = this.ExtractRuntimeVarsFromString(dataAsString);
+                    const extractRes = SGUtils.ExtractRuntimeVarsFromString(dataAsString);
                     const rtv = extractRes.runtimeVars;
                     const rtvUpdates = {};
                     for (let indexRTV = 0; indexRTV < Object.keys(rtv).length; indexRTV++) {
@@ -1590,7 +1510,7 @@ export default class Agent {
                 for (let i = 0; i < lastNLines.length; i++) {
                     if (Buffer.byteLength(lastNLines[i], 'utf8') > this.maxSizeLineInTail)
                         lastNLines[i] = truncate(lastNLines[i], this.maxSizeLineInTail) + ' (truncated)';
-                    lastNLines[i] = this.ReplaceSensitiveRuntimeVarValuesInString(lastNLines[i], task.runtimeVars);
+                    lastNLines[i] = SGUtils.ReplaceSensitiveRuntimeVarValuesInString(lastNLines[i], task.runtimeVars);
                 }
                 // Uploads stdout to the API in chunks up to a max size
                 while (true) {
@@ -1602,7 +1522,7 @@ export default class Agent {
                         const maxStdoutUploadSize = 51200;
                         let stdoutBytesProcessedLocal = 0;
                         for (let i = 0; i < data.length; i++) {
-                            data[i] = this.ReplaceSensitiveRuntimeVarValuesInString(data[i], task.runtimeVars);
+                            data[i] = SGUtils.ReplaceSensitiveRuntimeVarValuesInString(data[i], task.runtimeVars);
                             const strLenBytes = Buffer.byteLength(data[i], 'utf8');
                             if (stateVars.stdoutBytesProcessed + strLenBytes > this.maxStdoutSize) {
                                 stdoutToUpload += '\n(max stdout size exceeded - results truncated)\n';
@@ -1962,7 +1882,7 @@ export default class Agent {
             // Inject runtime vars in script command line arguments
             step.arguments = SGUtils.InjectRuntimeVarsInArg(task, step.arguments, this.LogError);
             let runCode: string = SGUtils.atob(step.script.code);
-            runCode = this.ReplaceSensitiveRuntimeVarValuesInString(runCode, task.runtimeVars);
+            runCode = SGUtils.ReplaceSensitiveRuntimeVarValuesInString(runCode, task.runtimeVars);
             runCode = SGUtils.btoa_(runCode);
             let stepOutcome: any = {
                 _teamId: new mongodb.ObjectId(this._teamId),
